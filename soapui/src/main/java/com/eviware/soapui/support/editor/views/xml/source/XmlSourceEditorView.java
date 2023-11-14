@@ -630,7 +630,7 @@ public class XmlSourceEditorView<T extends ModelItem> extends AbstractXmlEditorV
 
     @Override
     public int getSupportScoreForContentType(String contentType ) {
-        Pattern p = Pattern.compile("(?:(xml$)|((\\/|\\+)xml;.+))");
+        Pattern p = Pattern.compile("(?i)(?:(xml$)|((\\/|\\+)(xml|html);.+))");
         Matcher m = p.matcher(contentType.toLowerCase());
         return m.find() ? 2 : 0;
     }
