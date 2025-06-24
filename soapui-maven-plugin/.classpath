@@ -57,5 +57,10 @@
 	<classpathentry kind="var" path="MAVEN_REPO/net.sourceforge.cssparser/jars/cssparser-0.9.5.jar"/>
 	<classpathentry kind="var" path="MAVEN_REPO/net.sourceforge.nekohtml/jars/nekohtml-1.9.14.jar"/>
 	<classpathentry combineaccessrules="false" kind="src" path="/soapui-core-DEV"/>
+	<classpathentry kind="src" path="target/generated-sources/annotations">
+		<attributes>
+			<attribute name="optional" value="true"/>
+		</attributes>
+	</classpathentry>
 	<classpathentry kind="output" path="target/classes"/>
 </classpath>

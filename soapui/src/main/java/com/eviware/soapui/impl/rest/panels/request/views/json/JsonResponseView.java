@@ -37,6 +37,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.fife.ui.rsyntaxtextarea.Theme;
 import org.fife.ui.rtextarea.RTextScrollPane;
 
 import javax.swing.AbstractAction;
@@ -55,6 +56,9 @@ import java.io.IOException;
 
 @SuppressWarnings("unchecked")
 public class JsonResponseView extends AbstractXmlEditorView<HttpResponseDocument> implements PropertyChangeListener {
+    private static final String RSYNTAXAREA_THEME = "/rsyntaxarea-theme/soapui.xml";
+    private static final String RSYNTAXAREA_DARK_THEME = "/rsyntaxarea-theme/soapui-dark.xml";
+
     private final HttpRequestInterface<?> httpRequest;
     private FindAndReplaceableTextArea contentEditor;
     private RTextScrollPane editorScrollPane;
@@ -65,10 +69,12 @@ public class JsonResponseView extends AbstractXmlEditorView<HttpResponseDocument
     private GoToLineAction goToLineAction;
     private FindAndReplaceDialog findAndReplaceDialog;
     private SaveJsonTextAreaAction saveJsonAction;
+    private boolean isDarkMode;
 
     public JsonResponseView(HttpResponseMessageEditor httpRequestMessageEditor, HttpRequestInterface<?> httpRequest) {
         super("JSON", httpRequestMessageEditor, JsonResponseViewFactory.VIEW_ID);
         this.httpRequest = httpRequest;
+        this.isDarkMode = SoapUI.getSettings().getBoolean("UISettings.DARK_MODE", false);
 
         httpRequest.addPropertyChangeListener(this);
     }
@@ -77,7 +83,7 @@ public class JsonResponseView extends AbstractXmlEditorView<HttpResponseDocument
         if (panel == null) {
             panel = new JPanel(new BorderLayout());
 
-            panel.add(UISupport.createToolbar(), BorderLayout.NORTH);
+            // panel.add(UISupport.createToolbar(), BorderLayout.NORTH);
             panel.add(buildContent(), BorderLayout.CENTER);
             panel.add(buildStatus(), BorderLayout.SOUTH);
         }
@@ -98,8 +104,23 @@ public class JsonResponseView extends AbstractXmlEditorView<HttpResponseDocument
     private Component buildContent() {
         JPanel contentPanel = new JPanel(new BorderLayout());
 
+        // Apply dark mode styling to panel
+        if (isDarkMode) {
+            contentPanel.setBackground(new java.awt.Color(43, 43, 43));
+        }
+
         contentEditor = new FindAndReplaceableTextArea();
         contentEditor.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_JAVASCRIPT);
+
+        // Apply theme (dark or light) to the editor
+        try {
+            Theme theme = Theme.load(JsonResponseView.class.getResourceAsStream(
+                    isDarkMode ? RSYNTAXAREA_DARK_THEME : RSYNTAXAREA_THEME));
+            theme.apply(contentEditor);
+        } catch (java.io.IOException e) {
+            SoapUI.logError(e, "Could not load JSON editor color theme file");
+        }
+
         SyntaxEditorUtil.decorateSyntaxArea(contentEditor);
 
         editorScrollPane = new RTextScrollPane(contentEditor);
