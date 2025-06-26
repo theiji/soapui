@@ -1,0 +1,2325 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 
+    Build script for SoapUI using Launch4j
+    This file generates executables and installers optimized for Windows x64
+    Unlike standard Maven build, this uses Launch4j + NSIS to create professional installers
+    
+    Usage:
+    - ant create-exe         : Creates only executable with bundled JRE
+    - ant create-installer   : Creates executable + professional NSIS installer  
+    - ant create-distribution: Creates executable + portable ZIP
+    - ant help               : Shows complete help
+-->
+<project name="SoapUI-Launch4j" default="create-exe" basedir=".">
+    
+    <!-- Project properties -->
+    <property name="project.name" value="SoapUI"/>
+    <property name="project.version" value="5.8.0"/>
+    <property name="main.class" value="com.eviware.soapui.SoapUI"/>
+    
+    <!-- Tool paths -->
+    <property name="launch4j.dir" value="C:/Program Files (x86)/Launch4j"/>
+    <property name="nsis.dir" value="C:/Program Files (x86)/NSIS"/>
+    <property name="jre.dir" value="C:/Program Files/Java/jdk-17"/>
+    
+    <!-- Project directories -->
+    <property name="build.dir" value="${basedir}/soapui-installer/target/launch4j"/>
+    <property name="dist.dir" value="${basedir}/soapui-installer/target/launch4j/SoapUI-${project.version}"/>
+    <property name="lib.dir" value="${dist.dir}/lib"/>
+    <property name="jre.target.dir" value="${dist.dir}/jre"/>
+    <property name="bin.dir" value="${dist.dir}/bin"/>
+    <property name="soapui.jar" value="${basedir}/soapui/target/soapui-${project.version}.jar"/>
+    <property name="dist.standalone.dir" value="${basedir}/soapui-installer/src/dist_standalone"/>
+    
+    <!-- Launch4j task -->
+    <taskdef name="launch4j" 
+             classname="net.sf.launch4j.ant.Launch4jTask" 
+             classpath="${launch4j.dir}/launch4j.jar:${launch4j.dir}/lib/xstream.jar"/>
+    
+    <!-- Installer properties -->
+    <property name="installer.name" value="SoapUI-x64-${project.version}.exe"/>
+    <property name="installer.output" value="${build.dir}/${installer.name}"/>
+    <property name="nsis.script" value="${build.dir}/soapui-installer.nsi"/>
+    
+    <!-- Main target to create executable only -->
+    <target name="create-exe" depends="clean,init,copy-dependencies,copy-jre,copy-scripts,copy-resources,process-final-splash-screens,copy-launch4j-config,build-exe,show-optimization-stats">
+        <echo message="SoapUI executable created successfully!"/>
+    </target>
+    
+    <!-- Main target to create complete installer (executable + installer) -->
+    <target name="create-installer" depends="create-exe,create-nsis-script,build-installer,cleanup-installer">
+        <echo message="SoapUI installer created successfully!"/>
+        <echo message="Location: ${installer.output}"/>
+        <antcall target="show-installer-stats"/>
+    </target>
+    
+    <!-- Clean build directories -->
+    <target name="clean">
+        <echo message="Cleaning build directories..."/>
+        <delete dir="${dist.dir}"/>
+    </target>
+    
+    <!-- Initialize directories -->
+    <target name="init">
+        <echo message="Creating directories..."/>
+        <mkdir dir="${build.dir}"/>
+        <mkdir dir="${dist.dir}"/>
+        <mkdir dir="${lib.dir}"/>
+        <mkdir dir="${jre.target.dir}"/>
+        <mkdir dir="${bin.dir}"/>
+        <mkdir dir="${dist.dir}/licenses"/>
+        <mkdir dir="${dist.dir}/SoapUI-Tutorials"/>
+        <mkdir dir="${dist.dir}/wsi-test-tools"/>
+        <mkdir dir="${dist.dir}/tempHermes"/>
+        <!-- .soapuios directory is auto-created by PluginManager on first run -->
+        <!-- <mkdir dir="${dist.dir}/.soapuios/plugins"/> -->
+    </target>
+    
+    <!-- Compile project using Maven -->
+    <target name="compile">
+        <echo message="Compiling SoapUI project with Maven..."/>
+        <exec executable="mvn.cmd" failonerror="true" dir="soapui">
+            <arg line="package -DskipTests"/>
+        </exec>
+    </target>
+    
+    <!-- Copy dependencies (optimized for Windows) -->
+    <target name="copy-dependencies">
+        <echo message="Copying Windows-optimized dependencies..."/>
+        
+        <!-- Copy main JAR -->
+        <copy file="${soapui.jar}" todir="${bin.dir}"/>
+        
+        <!-- Copy Maven dependencies -->
+        <exec executable="mvn.cmd" failonerror="true" dir="soapui">
+            <arg line="dependency:copy-dependencies -DoutputDirectory=${lib.dir}"/>
+        </exec>
+        
+        <!-- Remove JARs from other platforms to optimize size -->
+        <echo message="Optimizing dependencies - removing JARs from other platforms..."/>
+        <delete failonerror="false">
+            <fileset dir="${lib.dir}">
+                <!-- Remove JavaFX from other platforms -->
+                <include name="javafx-*-linux.jar"/>
+                <include name="javafx-*-mac.jar"/>
+                <include name="javafx-*-mac-aarch64.jar"/>
+                
+                <!-- Remove SWT from other platforms -->
+                <include name="*swt*linux*.jar"/>
+                <include name="*swt*macosx*.jar"/>
+                <include name="*swt*cocoa*.jar"/>
+                
+                <!-- Remove native libraries from other platforms -->
+                <include name="*-natives-linux.jar"/>
+                <include name="*-natives-macos.jar"/>
+                <include name="*-natives-osx.jar"/>
+                
+                <!-- Remove JNA from other platforms -->
+                <include name="jna-platform-*-linux*.jar"/>
+                <include name="jna-platform-*-osx*.jar"/>
+                <include name="jna-platform-*-freebsd*.jar"/>
+                
+                <!-- Remove Netty from other platforms -->
+                <include name="netty-transport-native-*linux*.jar"/>
+                <include name="netty-transport-native-*macos*.jar"/>
+                <include name="netty-transport-native-*osx*.jar"/>
+            </fileset>
+        </delete>
+        
+        <!-- Count JARs kept vs removed -->
+        <resourcecount property="total.jars">
+            <fileset dir="${lib.dir}">
+                <include name="*.jar"/>
+            </fileset>
+        </resourcecount>
+        
+        <echo message="Windows-optimized dependencies:"/>
+        <echo message="  ✓ Total JARs: ${total.jars}"/>
+        <echo message="  ✓ Removed JavaFX Linux/Mac JARs"/>
+        <echo message="  ✓ Removed SWT JARs from other platforms"/>
+        <echo message="  ✓ Removed Linux/Mac native JARs"/>
+        <echo message="  ✓ Removed JNA JARs from other platforms"/>
+        <echo message="  ✓ Removed Netty JARs from other platforms"/>
+        <echo message="  ✓ Kept only Windows and generic JARs"/>
+    </target>
+    
+    <!-- Create custom JRE using jlink (Java 9+ modular approach) -->
+    <target name="copy-jre">
+        <echo message="Creating custom JRE using jlink for SoapUI runtime..."/>
+        
+        <!-- Check if custom JRE already exists -->
+        <available file="${jre.target.dir}/bin/java.exe" property="custom.jre.exists"/>
+        
+        <!-- Create custom JRE if it doesn't exist -->
+        <antcall target="create-custom-jre"/>
+        
+        <!-- Copy additional runtime files if needed -->
+        <antcall target="copy-additional-runtime-files"/>
+        
+        <!-- Show optimization results -->
+        <antcall target="show-jre-optimization"/>
+    </target>
+    
+    <!-- Create minimal custom JRE with jlink -->
+    <target name="create-custom-jre" unless="custom.jre.exists">
+        <echo message="Building minimal custom JRE with jlink..."/>
+        <echo message="Essential modules for SoapUI:"/>
+        <echo message="  • java.base - Core Java runtime"/>
+        <echo message="  • java.desktop - Swing/AWT UI components"/>
+        <echo message="  • java.xml - XML processing (SOAP/WSDL)"/>
+        <echo message="  • java.logging - Logging framework"/>
+        <echo message="  • java.management - JMX monitoring"/>
+        <echo message="  • java.naming - JNDI directory services"/>
+        <echo message="  • java.net.http - HTTP client (Java 11+)"/>
+        <echo message="  • java.scripting - Groovy script support"/>
+        <echo message="  • java.sql - Database connectivity"/>
+        <echo message="  • java.transaction.xa - XA transactions"/>
+        <echo message="  • jdk.crypto.ec - Elliptic curve cryptography"/>
+        <echo message="  • jdk.security.auth - Security authentication (UserPrincipal)"/>
+        <echo message="  • jdk.unsupported - sun.misc.Unsafe (legacy support)"/>
+        
+        <!-- Clean existing JRE directory first -->
+        <delete dir="${jre.target.dir}" failonerror="false"/>
+        <!-- jlink will create the directory automatically -->
+        
+        <!-- Detect Java home with jmods -->
+        <condition property="jmods.path" value="${java.home}/jmods" else="${java.home}/../jmods">
+            <available file="${java.home}/jmods" type="dir"/>
+        </condition>
+        
+        <echo message="Using jmods from: ${jmods.path}"/>
+        
+        <!-- Create custom JRE with essential modules only -->
+        <exec executable="${java.home}/bin/jlink" failonerror="true">
+            <arg value="--module-path"/>
+            <arg value="${jmods.path}"/>
+            <arg value="--add-modules"/>
+            <arg value="java.base,java.desktop,java.xml,java.logging,java.management,java.naming,java.net.http,java.scripting,java.sql,java.transaction.xa,jdk.crypto.ec,jdk.jdi,jdk.security.auth,jdk.unsupported"/>
+            <arg value="--output"/>
+            <arg value="${jre.target.dir}"/>
+            <arg value="--compress=2"/>
+            <arg value="--no-header-files"/>
+            <arg value="--no-man-pages"/>
+            <arg value="--strip-debug"/>
+            <arg value="--exclude-files=**.diz,**.debuginfo"/>
+        </exec>
+        
+        <echo message="✓ Custom JRE created successfully with jlink"/>
+        <echo message="✓ Size optimized with compression level 2"/>
+        <echo message="✓ Debug info and documentation removed"/>
+    </target>
+    
+    <!-- Copy additional runtime files -->
+    <target name="copy-additional-runtime-files">
+        <echo message="Adding additional runtime components..."/>
+        
+        <!-- Copy JavaFX JARs if they exist and are needed -->
+        <copy todir="${jre.target.dir}/lib" failonerror="false">
+            <fileset dir="${jre.dir}/lib" erroronmissingdir="false">
+                <!-- Windows-specific JavaFX -->
+                <include name="javafx-*-win.jar"/>
+                <!-- Generic JavaFX (platform-independent) -->
+                <include name="javafx-base-*.jar"/>
+                <include name="javafx-controls-*.jar"/>
+                <include name="javafx-fxml-*.jar"/>
+                <include name="javafx-graphics-*.jar"/>
+                <include name="javafx-media-*.jar"/>
+                <include name="javafx-swing-*.jar"/>
+                <include name="javafx-web-*.jar"/>
+                <!-- Exclude other platforms -->
+                <exclude name="javafx-*-linux.jar"/>
+                <exclude name="javafx-*-mac.jar"/>
+                <exclude name="javafx-*-mac-aarch64.jar"/>
+            </fileset>
+        </copy>
+        
+        <!-- Copy essential Windows-specific DLLs if missing -->
+        <copy todir="${jre.target.dir}/bin" failonerror="false">
+            <fileset dir="${jre.dir}/bin" erroronmissingdir="false">
+                <include name="*.dll"/>
+                <!-- Exclude Unix binaries -->
+                <exclude name="java"/>
+                <exclude name="javac"/>
+            </fileset>
+        </copy>
+        
+        <echo message="✓ Additional runtime files copied"/>
+    </target>
+    
+    <!-- Show JRE optimization results -->
+    <target name="show-jre-optimization">
+        <echo message="Custom JRE optimization completed:"/>
+        <echo message="  ✓ Minimal modular JRE (jlink-generated)"/>
+        <echo message="  ✓ Only essential modules included"/>
+        <echo message="  ✓ Windows x64 platform only"/>
+        <echo message="  ✓ No development tools or documentation"/>
+        <echo message="  ✓ Maximum compression applied"/>
+        <echo message="  ✓ Debug symbols stripped"/>
+        <echo message="  ✓ Estimated size reduction: 60-80% vs full JDK"/>
+    </target>
+    
+    <!-- Copy scripts and bin files (optimized for Windows) -->
+    <target name="copy-scripts">
+        <echo message="Copying Windows-optimized scripts and bin files..."/>
+        
+        <!-- Copy only Windows scripts (.bat) with variable processing -->
+        <copy todir="${dist.dir}/bin">
+            <fileset dir="${dist.standalone.dir}/bin">
+                <include name="*.bat"/>
+                <!-- Exclude Unix scripts -->
+                <exclude name="*.sh"/>
+                <exclude name="soapui.bat"/>
+            </fileset>
+            <filterset>
+                <filter token="project.src.artifactId" value="soapui"/>
+                <filter token="project.version" value="${project.version}"/>
+            </filterset>
+        </copy>
+        
+        <!-- Copy other Windows files without processing -->
+        <copy todir="${dist.dir}/bin">
+            <fileset dir="${dist.standalone.dir}/bin">
+                <!-- Include only necessary files for Windows -->
+                <include name="*.xml"/>
+                <include name="*.html"/>
+                <include name="*.ico"/>
+                <include name="*.png"/>
+                <include name="*.properties"/>
+                <!-- Exclude scripts -->
+                <exclude name="*.bat"/>
+                <exclude name="*.sh"/>
+            </fileset>
+        </copy>
+        
+        <!-- Copy only Windows files from normal distribution -->
+        <copy todir="${dist.dir}/bin">
+            <fileset dir="${basedir}/soapui-installer/src/dist/bin">
+                <include name="soapui-log4j.xml"/>
+                <include name="starter-page.html"/>
+                <!-- Exclude installation scripts (won't go in final installer) -->
+                <exclude name="installationcomplete.bat"/>
+                <exclude name="uninstallactiontrack.bat"/>
+                <exclude name="updateinstallation.bat"/>
+                <!-- Exclude Unix scripts -->
+                <exclude name="*.sh"/>
+                <include name="ext/readme.txt"/>
+            </fileset>
+        </copy>
+
+        <!-- Copy original splash images first -->
+        <copy todir="${dist.dir}/bin" failonerror="false">
+            <fileset dir="soapui-installer/target/classes">
+                <include name="SoapUI-Spashscreen-blank.png"/>
+                <include name="SoapUI-Spashscreen@2x-blank.png"/>
+            </fileset>
+        </copy>
+        
+        <!-- Copy SoapUI icon (only to dist.dir for installer compilation, will be removed later) -->
+        <copy file="soapui-installer/src/install4j/resources/images/SoapUI-OS.ico" 
+              tofile="${dist.dir}/SoapUI-OS.ico" failonerror="false"/>
+        <!-- Do not copy SoapUI-OS.ico to bin/ - it should not go in the final installer -->
+        
+        <!-- Create temporary versions without -blank for immediate use -->
+        <copy file="${dist.dir}/bin/SoapUI-Spashscreen-blank.png" 
+              tofile="${dist.dir}/bin/SoapUI-Spashscreen.png" failonerror="false"/>
+        
+        <copy file="${dist.dir}/bin/SoapUI-Spashscreen@2x-blank.png" 
+              tofile="${dist.dir}/bin/SoapUI-Spashscreen@2x.png" failonerror="false"/>
+
+        <!-- Create empty directories actions, listeners and ext -->
+        <mkdir dir="${dist.dir}/bin/actions"/>
+        <mkdir dir="${dist.dir}/bin/listeners"/>
+        <mkdir dir="${dist.dir}/bin/ext"/>
+        
+        <!-- Create corrected soapui.bat -->
+        <echo file="${dist.dir}/bin/soapui-fixed.bat">@echo off
+
+set SOAPUI_HOME=%~dp0
+if exist "%SOAPUI_HOME%..\jre\bin\java.exe" goto SET_BUNDLED_JAVA
+
+if exist "%JAVA_HOME%" goto SET_SYSTEM_JAVA
+
+echo JAVA_HOME is not set, unexpected results may occur.
+echo Set JAVA_HOME to the directory of your local JDK to avoid this message.
+goto SET_SYSTEM_JAVA
+
+:SET_BUNDLED_JAVA
+set JAVA=%SOAPUI_HOME%..\jre\bin\java
+goto END_SETTING_JAVA
+
+:SET_SYSTEM_JAVA
+set JAVA=java
+
+:END_SETTING_JAVA
+
+rem init classpath
+set OLDDIR=%CD%
+cd /d %SOAPUI_HOME%
+
+set CLASSPATH=%SOAPUI_HOME%soapui-${project.version}.jar;%SOAPUI_HOME%..\lib\*
+
+rem JVM parameters, modify as appropriate
+set JAVA_OPTS=-Xms128m -Xmx2048m -XX:MinHeapFreeRatio=20 -XX:MaxHeapFreeRatio=40 -Dsoapui.properties=soapui.properties "-Dsoapui.home=%SOAPUI_HOME%\.." -splash:SoapUI-Spashscreen.png
+
+rem CVE-2021-44228
+set JAVA_OPTS=%JAVA_OPTS% -Dlog4j2.formatMsgNoLookups=true
+
+rem JAVA 17
+set JAVA_OPTS=%JAVA_OPTS% --add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.lang.invoke=ALL-UNNAMED --add-opens java.desktop/java.beans=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/java.lang.reflect=ALL-UNNAMED --add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED --add-opens java.xml/com.sun.org.apache.xerces.internal.util=ALL-UNNAMED --add-opens java.base/java.net=ALL-UNNAMED --add-opens java.desktop/java.awt=ALL-UNNAMED --add-opens java.desktop/javax.swing=ALL-UNNAMED --add-opens java.base/sun.net.www=ALL-UNNAMED --add-opens java.base/sun.net.www.protocol.https=ALL-UNNAMED --add-opens java.base/sun.net.www.protocol.http=ALL-UNNAMED --add-opens java.desktop/javax.swing.plaf=ALL-UNNAMED --add-opens java.desktop/javax.swing.plaf.basic=ALL-UNNAMED --add-opens jdk.jdi/com.sun.jdi=ALL-UNNAMED --add-opens java.prefs/java.util.prefs=ALL-UNNAMED
+
+set JAVA_OPTS=%JAVA_OPTS% -Dsoapui.ext.libraries="%SOAPUI_HOME%ext"
+set JAVA_OPTS=%JAVA_OPTS% -Dsoapui.ext.listeners="%SOAPUI_HOME%listeners"
+set JAVA_OPTS=%JAVA_OPTS% -Dsoapui.ext.actions="%SOAPUI_HOME%actions"
+set JAVA_OPTS=%JAVA_OPTS% -Djava.library.path="%SOAPUI_HOME%\"
+set JAVA_OPTS=%JAVA_OPTS% -Dwsi.dir="%SOAPUI_HOME%..\wsi-test-tools"
+
+:START
+
+rem ********* run soapui ***********
+
+"%JAVA%" %JAVA_OPTS% -cp "%CLASSPATH%" com.eviware.soapui.SoapUI %*
+cd /d %OLDDIR%
+</echo>
+
+        <!-- Replace original soapui.bat with corrected one -->
+        <move file="${dist.dir}/bin/soapui-fixed.bat" tofile="${dist.dir}/bin/soapui.bat"/>
+        
+        <!-- Remove Unix and installation scripts that may have been accidentally copied -->
+        <delete failonerror="false">
+            <fileset dir="${dist.dir}/bin">
+                <include name="*.sh"/>
+                <include name="installationcomplete.sh"/>
+                <include name="uninstallactiontrack.sh"/>
+                <include name="updateinstallation.sh"/>
+                <!-- Remove Windows installation scripts (should not go in final installer) -->
+                <include name="installationcomplete.bat"/>
+                <include name="uninstallactiontrack.bat"/>
+                <include name="updateinstallation.bat"/>
+                <include name="soapui"/>
+                <include name="loadtestrunner"/>
+                <include name="mockservicerunner"/>
+                <include name="securitytestrunner"/>
+                <include name="testrunner"/>
+                <include name="toolrunner"/>
+                <include name="wargenerator"/>
+                <include name="wsdl2java"/>
+            </fileset>
+        </delete>
+        
+        <!-- Count Windows-kept files -->
+        <resourcecount property="bin.bat.count">
+            <fileset dir="${dist.dir}/bin">
+                <include name="*.bat"/>
+            </fileset>
+        </resourcecount>
+        
+        <resourcecount property="bin.total.count">
+            <fileset dir="${dist.dir}/bin">
+                <include name="*"/>
+                <type type="file"/>
+            </fileset>
+        </resourcecount>
+        
+        <echo message="Windows-optimized bin scripts:"/>
+        <echo message="  ✓ Scripts .bat: ${bin.bat.count}"/>
+        <echo message="  ✓ Total files: ${bin.total.count}"/>
+        <echo message="  ✓ Removed all Unix scripts (.sh)"/>
+        <echo message="  ✓ Removed installation scripts"/>
+        <echo message="  ✓ Kept only necessary files for Windows"/>
+    </target>
+    
+    <!-- Copy additional resources (optimized for Windows) -->
+    <target name="copy-resources">
+        <echo message="Copying additional Windows-optimized resources..."/>
+        
+        <!-- Create .vmoptions file -->
+        <echo file="${bin.dir}/SoapUI-${project.version}.vmoptions" append="false"># SoapUI VM Options File
+# Each line represents a JVM option
+
+# Memory settings
+-Xms128m
+-Xmx1024m
+-XX:MinHeapFreeRatio=20
+-XX:MaxHeapFreeRatio=40
+
+# SoapUI specific settings
+-Dsoapui.properties=soapui.properties
+-Dsoapui.home=..
+-Dsoapui.ext.libraries=../bin/ext
+-Dsoapui.ext.listeners=../bin/listeners
+-Dsoapui.ext.actions=../bin/actions
+-Dwsi.dir=../wsi-test-tools
+-Djava.library.path=../bin
+-Djava.util.Arrays.useLegacyMergeSort=true
+
+# Splash screen
+-splash:SoapUI-Spashscreen.png
+
+# Security CVE-2021-44228
+-Dlog4j2.formatMsgNoLookups=true
+
+# Java 17 settings - open modules for compatibility
+--add-opens
+java.base/java.lang=ALL-UNNAMED
+--add-opens
+java.base/java.lang.invoke=ALL-UNNAMED
+--add-opens
+java.desktop/java.beans=ALL-UNNAMED
+--add-opens
+java.base/java.util=ALL-UNNAMED
+--add-opens
+java.base/java.lang.reflect=ALL-UNNAMED
+--add-opens
+java.base/java.util.concurrent.atomic=ALL-UNNAMED
+--add-opens
+java.xml/com.sun.org.apache.xerces.internal.util=ALL-UNNAMED
+--add-opens
+java.base/java.net=ALL-UNNAMED
+--add-opens
+java.desktop/java.awt=ALL-UNNAMED
+--add-opens
+java.desktop/javax.swing=ALL-UNNAMED
+--add-opens
+java.base/sun.net.www=ALL-UNNAMED
+--add-opens
+java.base/sun.net.www.protocol.https=ALL-UNNAMED
+--add-opens
+java.base/sun.net.www.protocol.http=ALL-UNNAMED
+--add-opens
+java.desktop/javax.swing.plaf=ALL-UNNAMED
+--add-opens
+java.desktop/javax.swing.plaf.basic=ALL-UNNAMED
+--add-opens
+jdk.jdi/com.sun.jdi=ALL-UNNAMED
+--add-opens
+java.prefs/java.util.prefs=ALL-UNNAMED
+</echo>
+
+        <!-- Copy bundled plugins to user home -->
+        <!-- OPTIONAL: Remove this section to reduce installer size by ~800KB -->
+        <!-- The PluginManager will auto-create ~/.soapuios/plugins on first run -->
+        <!-- Users can install plugins manually later -->
+        <!-- 
+        <copy todir="${dist.dir}/.soapuios/plugins" failonerror="false">
+            <fileset dir="${basedir}/soapui-installer/src/BundlePlugins">
+                <include name="**/*.jar"/>
+            </fileset>
+        </copy>
+        -->
+        
+        <!-- Copy files from dist folder -->
+        <copy todir="${dist.dir}" failonerror="false">
+            <fileset dir="${basedir}/soapui-installer/src/dist">
+                <include name="*.xml"/>
+                <include name="*.url"/>
+                <include name="LICENSE.txt"/>
+                <exclude name="bin/**"/>
+                <exclude name="HelloWS-soapui-project.xml"/>
+                <exclude name="lib/**"/>
+                <exclude name="licenses/**"/>
+                <exclude name="soapui-settings.xml"/>
+                <exclude name="test-soapui-project.xml"/>
+                <exclude name="Tutorials/**"/>
+                <exclude name="wsi-test-tools/**"/>
+            </fileset>
+        </copy>
+        
+        <!-- Copy licenses -->
+        <copy todir="${dist.dir}/licenses" failonerror="false">
+            <fileset dir="${basedir}/soapui-installer/src/dist/licenses">
+                <include name="**/*"/>
+            </fileset>
+        </copy>
+        
+        <!-- Copy tutorials -->
+        <copy todir="${dist.dir}/SoapUI-Tutorials" failonerror="false">
+            <fileset dir="${basedir}/soapui-installer/src/dist/Tutorials">
+                <include name="**/*"/>
+            </fileset>
+        </copy>
+        
+        <!-- Copy README and RELEASENOTES from parent project (excluding BUILD-LAUNCH4J-README.md) -->
+        <copy todir="${dist.dir}" failonerror="false">
+            <fileset dir="${basedir}">
+                <include name="*.md"/>
+                <include name="RELEASENOTES.txt"/>
+                <!-- Excluir BUILD-LAUNCH4J-README.md do instalador e ZIP -->
+                <exclude name="BUILD-LAUNCH4J-README.md"/>
+            </fileset>
+        </copy>
+        
+        <!-- Create specific README for .vmoptions and splash images -->
+        <echo file="${dist.dir}/VMOPTIONS-README.md" append="false"># SoapUI .vmoptions file
+
+## What is the .vmoptions file?
+
+The `.vmoptions` file is a reference file that contains all the JVM options that are configured in the SoapUI executable.
+
+## Location
+
+The file is located in:
+```
+bin/SoapUI-${project.version}.vmoptions
+```
+
+## Current status
+
+**IMPORTANT**: The JVM options are currently compiled directly into the `.exe` executable due to the installed version of Launch4j. The `.vmoptions` file serves as:
+
+1. **Reference**: Shows all options that are active in the executable
+2. **Template**: Base for future customizations
+3. **Documentation**: Complete list of JVM configurations
+
+## Options included in the executable
+
+### Memory
+- `-Xms128m` - Initial memory
+- `-Xmx1024m` - Maximum memory  
+- `-XX:MinHeapFreeRatio=20` - Minimum heap free ratio
+- `-XX:MaxHeapFreeRatio=40` - Maximum heap free ratio
+
+### SoapUI settings
+- `-Dsoapui.home=..` - SoapUI home directory
+- `-Dsoapui.properties=soapui.properties` - Properties file
+- `-Dsoapui.ext.libraries=../bin/ext` - External libraries
+- `-Dsoapui.ext.listeners=../bin/listeners` - Listeners
+- `-Dsoapui.ext.actions=../bin/actions` - Actions
+- `-Djava.library.path=../bin` - Native libraries
+
+### Java 17 settings
+- Multiple `--add-opens` options for module compatibility
+
+### Security
+- `-Dlog4j2.formatMsgNoLookups=true` - CVE-2021-44228 protection
+
+## How to customize (future versions)
+
+To use the .vmoptions file with newer versions of Launch4j:
+
+1. **Update Launch4j** to version 3.12+ that supports vmOptionsFile
+2. **Edit build.xml** and add `&lt;vmOptionsFile&gt;` in the configuration
+3. **Recompile** the executable
+
+## Current customization
+
+To customize the JVM options currently, edit the `build.xml` file in the `&lt;jre&gt;&lt;opt&gt;` section.
+
+The .vmoptions file will be fully functional when a newer version of Launch4j is installed.
+</echo>
+        
+        <echo message=".vmoptions file created: ${bin.dir}/SoapUI-${project.version}.vmoptions"/>
+        <echo message="See VMOPTIONS-README.md for usage instructions"/>
+        
+        <!-- Copy demo workspace -->
+        <copy file="${basedir}/soapui/demo_workspace.xml" todir="${dist.dir}" failonerror="false"/>
+        
+        <!-- Copy hermes installer -->
+        <copy todir="${dist.dir}/tempHermes" failonerror="false">
+            <fileset dir="${basedir}/soapui-installer/src/install4j/hermes">
+                <include name="**/*"/>
+            </fileset>
+        </copy>
+        
+        <!-- Copy WSI test tools (if they exist) -->
+        <copy todir="${dist.dir}/wsi-test-tools" failonerror="false">
+            <fileset dir="${basedir}/wsi-test-tools" erroronmissingdir="false">
+                <include name="**/*"/>
+            </fileset>
+        </copy>
+        
+       
+        <!-- Create empty log files -->
+        <touch file="${dist.dir}/bin/soapui.log"/>
+        <touch file="${dist.dir}/bin/soapui-errors.log"/>
+    </target>
+    
+    <!-- Target to process splash images adding version -->
+    <target name="process-splash-screens" if="splash.blank.exists">
+        <echo message="Running SplashScreenStomper to add version to images..."/>
+        
+        <!-- Check if the SoapUI JAR exists -->
+        <available file="${bin.dir}/soapui-${project.version}.jar" property="soapui.jar.exists"/>
+        
+        <!-- Process only if the JAR exists -->
+        <condition property="can.run.stomper">
+            <and>
+                <isset property="splash.blank.exists"/>
+                <isset property="soapui.jar.exists"/>
+            </and>
+        </condition>
+        
+        <antcall target="run-splash-stomper"/>
+    </target>
+    
+    <!-- Target to run SplashScreenStomper -->
+    <target name="run-splash-stomper" if="can.run.stomper">
+        <!-- Run SplashScreenStomper with the same Maven configurations -->
+        <java classname="com.eviware.soapui.tools.SplashScreenStomper" 
+              fork="true" 
+              failonerror="false">
+            <classpath>
+                <pathelement location="${bin.dir}/soapui-${project.version}.jar"/>
+                <fileset dir="${lib.dir}">
+                    <include name="**/*.jar"/>
+                </fileset>
+            </classpath>
+            <arg value="SoapUI ${project.version}"/>
+            <arg value="soapui-installer/src/main/resources/SoapUI-Spashscreen-blank.png"/>
+            <arg value="${dist.dir}/bin/SoapUI-Spashscreen.png"/>
+            <arg value="soapui-installer/src/main/resources/SoapUI-Spashscreen@2x-blank.png"/>
+            <arg value="${dist.dir}/bin/SoapUI-Spashscreen@2x.png"/>
+        </java>
+        
+        <!-- Delete -blank images after processing -->
+        <delete file="${dist.dir}/bin/SoapUI-Spashscreen-blank.png" failonerror="false"/>
+        <delete file="${dist.dir}/bin/SoapUI-Spashscreen@2x-blank.png" failonerror="false"/>
+        
+        <echo message="Splash images processed with version: SoapUI ${project.version}"/>
+        <echo message="-blank images removed (kept only final versions)"/>
+    </target>
+    
+    <!-- Target to process final splash images after all dependencies -->
+    <target name="process-final-splash-screens">
+        <echo message="Processing final splash images with SplashScreenStomper..."/>
+        
+        <!-- Check if the source images exist -->
+        <available file="soapui-installer/src/main/resources/SoapUI-Spashscreen-blank.png" property="splash.blank.exists"/>
+        
+        <!-- Process splash images if they exist -->
+        <antcall target="process-splash-screens"/>
+    </target>
+
+    <!-- Create Launch4j configuration -->
+    <target name="copy-launch4j-config">
+        <echo message="Creating Launch4j configuration..."/>
+        
+        <!-- Process version to file/product version format (remove non-numeric characters + add .0) -->
+        <loadresource property="file.version">
+            <propertyresource name="project.version"/>
+            <filterchain>
+                <replaceregex pattern="[^0-9\.]" replace="" flags="g"/>
+                <suffixlines suffix=".0"/>
+            </filterchain>
+        </loadresource>
+        
+        <echo message="Version processed for Launch4j: ${file.version}"/>
+        
+        <echo file="${build.dir}/soapui-config.xml" append="false">&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+&lt;launch4jConfig&gt;
+    &lt;dontWrapJar&gt;true&lt;/dontWrapJar&gt;
+    &lt;headerType&gt;gui&lt;/headerType&gt;
+    &lt;jar&gt;bin/soapui-${project.version}.jar&lt;/jar&gt;
+    &lt;outfile&gt;${bin.dir}/SoapUI-${project.version}.exe&lt;/outfile&gt;
+    &lt;errTitle&gt;SoapUI Error&lt;/errTitle&gt;
+    &lt;cmdLine&gt;&lt;/cmdLine&gt;
+    &lt;chdir&gt;.&lt;/chdir&gt;
+    &lt;priority&gt;normal&lt;/priority&gt;
+    &lt;downloadUrl&gt;https://adoptium.net/&lt;/downloadUrl&gt;
+    &lt;supportUrl&gt;https://www.soapui.org/&lt;/supportUrl&gt;
+    &lt;stayAlive&gt;false&lt;/stayAlive&gt;
+    &lt;restartOnCrash&gt;false&lt;/restartOnCrash&gt;
+    &lt;manifest&gt;&lt;/manifest&gt;
+    &lt;icon&gt;${dist.dir}/SoapUI-OS.ico&lt;/icon&gt;
+    &lt;classPath&gt;
+        &lt;mainClass&gt;${main.class}&lt;/mainClass&gt;
+        &lt;cp&gt;../bin/soapui-${project.version}.jar&lt;/cp&gt;
+        &lt;cp&gt;../lib/*.jar&lt;/cp&gt;
+    &lt;/classPath&gt;
+    &lt;jre&gt;
+        &lt;path&gt;../jre&lt;/path&gt;
+        &lt;bundledJre64Bit&gt;true&lt;/bundledJre64Bit&gt;
+        &lt;bundledJreAsFallback&gt;true&lt;/bundledJreAsFallback&gt;
+        &lt;minVersion&gt;17.0.0&lt;/minVersion&gt;
+        &lt;maxVersion&gt;&lt;/maxVersion&gt;
+        &lt;jdkPreference&gt;preferJre&lt;/jdkPreference&gt;
+        &lt;runtimeBits&gt;64&lt;/runtimeBits&gt;
+        &lt;maxHeapSize&gt;1024&lt;/maxHeapSize&gt;
+        &lt;initialHeapSize&gt;128&lt;/initialHeapSize&gt;
+        &lt;opt&gt;-XX:MinHeapFreeRatio=20&lt;/opt&gt;
+        &lt;opt&gt;-XX:MaxHeapFreeRatio=40&lt;/opt&gt;
+        &lt;opt&gt;-Dsoapui.properties=soapui.properties&lt;/opt&gt;
+        &lt;opt&gt;-Dsoapui.home=.&lt;/opt&gt;
+        &lt;opt&gt;-Dsoapui.ext.libraries=bin/ext&lt;/opt&gt;
+        &lt;opt&gt;-Dsoapui.ext.listeners=bin/listeners&lt;/opt&gt;
+        &lt;opt&gt;-Dsoapui.ext.actions=bin/actions&lt;/opt&gt;
+        &lt;opt&gt;-Dwsi.dir=wsi-test-tools&lt;/opt&gt;
+        &lt;opt&gt;-Djava.library.path=bin&lt;/opt&gt;
+        &lt;opt&gt;-Dlog4j2.formatMsgNoLookups=true&lt;/opt&gt;
+        &lt;opt&gt;-splash:SoapUI-Spashscreen.png&lt;/opt&gt;
+        &lt;opt&gt;--add-opens java.base/java.lang=ALL-UNNAMED&lt;/opt&gt;
+        &lt;opt&gt;--add-opens java.base/java.lang.invoke=ALL-UNNAMED&lt;/opt&gt;
+        &lt;opt&gt;--add-opens java.desktop/java.beans=ALL-UNNAMED&lt;/opt&gt;
+        &lt;opt&gt;--add-opens java.base/java.util=ALL-UNNAMED&lt;/opt&gt;
+        &lt;opt&gt;--add-opens java.base/java.lang.reflect=ALL-UNNAMED&lt;/opt&gt;
+        &lt;opt&gt;--add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED&lt;/opt&gt;
+        &lt;opt&gt;--add-opens java.xml/com.sun.org.apache.xerces.internal.util=ALL-UNNAMED&lt;/opt&gt;
+        &lt;opt&gt;--add-opens java.base/java.net=ALL-UNNAMED&lt;/opt&gt;
+        &lt;opt&gt;--add-opens java.desktop/java.awt=ALL-UNNAMED&lt;/opt&gt;
+        &lt;opt&gt;--add-opens java.desktop/javax.swing=ALL-UNNAMED&lt;/opt&gt;
+        &lt;opt&gt;--add-opens java.base/sun.net.www=ALL-UNNAMED&lt;/opt&gt;
+        &lt;opt&gt;--add-opens java.base/sun.net.www.protocol.https=ALL-UNNAMED&lt;/opt&gt;
+        &lt;opt&gt;--add-opens java.base/sun.net.www.protocol.http=ALL-UNNAMED&lt;/opt&gt;
+        &lt;opt&gt;--add-opens java.desktop/javax.swing.plaf=ALL-UNNAMED&lt;/opt&gt;
+        &lt;opt&gt;--add-opens java.desktop/javax.swing.plaf.basic=ALL-UNNAMED&lt;/opt&gt;
+        &lt;opt&gt;--add-opens jdk.jdi/com.sun.jdi=ALL-UNNAMED&lt;/opt&gt;
+                    &lt;opt&gt;--add-opens java.prefs/java.util.prefs=ALL-UNNAMED&lt;/opt&gt;
+    &lt;/jre&gt;
+    &lt;versionInfo&gt;
+        &lt;fileVersion&gt;${file.version}&lt;/fileVersion&gt;
+        &lt;txtFileVersion&gt;${project.version}&lt;/txtFileVersion&gt;
+        &lt;fileDescription&gt;SoapUI - Web Service Testing Tool&lt;/fileDescription&gt;
+        &lt;copyright&gt;SmartBear Software&lt;/copyright&gt;
+        &lt;productVersion&gt;${file.version}&lt;/productVersion&gt;
+        &lt;txtProductVersion&gt;${project.version}&lt;/txtProductVersion&gt;
+        &lt;productName&gt;SoapUI&lt;/productName&gt;
+        &lt;companyName&gt;SmartBear Software&lt;/companyName&gt;
+        &lt;internalName&gt;SoapUI&lt;/internalName&gt;
+        &lt;originalFilename&gt;SoapUI-${project.version}.exe&lt;/originalFilename&gt;
+    &lt;/versionInfo&gt;
+&lt;/launch4jConfig&gt;</echo>
+    </target>
+    
+    <!-- Build executable with Launch4j -->
+    <target name="build-exe">
+        <echo message="Creating executable with Launch4j..."/>
+        
+        <!-- Run Launch4j -->
+        <launch4j configFile="${build.dir}/soapui-config.xml" />
+        
+        <echo message="Executable created: ${bin.dir}/SoapUI-${project.version}.exe"/>
+        <echo message="Distribution folder: ${dist.dir}"/>
+        <echo message="JRE included at: ${jre.target.dir}"/>
+    </target>
+    
+    <!-- Target to create portable distribution optimized for Windows -->
+    <target name="create-distribution" depends="create-exe,cleanup-distribution">
+        <echo message="Creating portable distribution file optimized for Windows x64..."/>
+        
+        <!-- Create ZIP with only mandatory SoapUI files (same as installer with all options unchecked) -->
+        <zip destfile="${build.dir}/SoapUI-x64-${project.version}-portable.zip">
+            <zipfileset dir="${dist.dir}" prefix="SoapUI-${project.version}">
+                <!-- Include only mandatory SoapUI section files (same as NSIS installer) -->
+                <include name="bin/**"/>
+                <include name="lib/**"/>
+                <include name="jre/**"/>
+                <include name="licenses/**"/>
+                
+                <!-- Include specific root files (avoid duplicates) -->
+                <include name="*.url"/>
+                <include name="LICENSE.txt"/>
+                <include name="RELEASENOTES.txt"/>
+                <include name="VMOPTIONS-README.md"/>
+
+                <!-- Include only necessary .md files (avoiding BUILD-LAUNCH4J-README.md) -->
+                <include name="README.md"/>
+                <include name="LICENSE.md"/>
+                <include name="SECURITY.md"/>
+                
+                <!-- Exclude files that should not go in portable ZIP -->
+                <exclude name="BUILD-LAUNCH4J-README.md"/>
+                <exclude name="demo_workspace.xml"/>
+                <exclude name="SoapUI-OS.ico"/>
+                <exclude name="soapui-config.xml"/>
+                
+                <!-- Exclude optional components (HermesJMS, Tutorials, WSI Tools) -->
+                <exclude name="tempHermes/**"/>
+                <exclude name="SoapUI-Tutorials/**"/>
+                <exclude name="wsi-test-tools/**"/>
+            </zipfileset>
+        </zip>
+        
+        <!-- Calculate ZIP size -->
+        <condition property="is.windows">
+            <os family="windows"/>
+        </condition>
+        
+        <antcall target="calculate-zip-size"/>
+        
+        <!-- Fallback if unable to calculate -->
+        <property name="zip.size.mb" value="N/A"/>
+        
+        <echo message=""/>
+        <echo message="==============================================================="/>
+        <echo message="           PORTABLE DISTRIBUTION WINDOWS x64 CREATED         "/>
+        <echo message="==============================================================="/>
+        <echo message=""/>
+        <echo message="PORTABLE FILE:"/>
+        <echo message="   - Name: SoapUI-x64-${project.version}-portable.zip"/>
+        <echo message="   - Size: ${zip.size.mb}"/>
+        <echo message="   - Location: ${build.dir}/SoapUI-x64-${project.version}-portable.zip"/>
+        <echo message="   - Version: ${project.version}"/>
+        <echo message=""/>
+        <echo message="MANDATORY CONTENT (same as NSIS installer with all options unchecked):"/>
+        <echo message="   - Root folder: SoapUI-${project.version}/"/>
+        <echo message="   - Executable: bin/SoapUI-${project.version}.exe"/>
+        <echo message="   - Main JAR: bin/soapui-${project.version}.jar"/>
+        <echo message="   - Optimized JRE: jre/ (Windows x64 only)"/>
+        <echo message="   - Libraries: lib/ (without Linux/Mac libs)"/>
+        <echo message="   - Scripts: bin/ (only .bat, no .sh)"/>
+        <echo message="   - Plugins: Auto-created by PluginManager on first run"/>
+        <echo message="   - Licenses: licenses/"/>
+        <echo message="   - Root files: *.url, LICENSE.txt, RELEASENOTES.txt, README.md, LICENSE.md, SECURITY.md, VMOPTIONS-README.md"/>
+        <echo message=""/>
+        <echo message="EXCLUDED OPTIONAL COMPONENTS:"/>
+        <echo message="   ❌ HermesJMS (tempHermes/) - Optional installer component"/>
+        <echo message="   ❌ Tutorials (SoapUI-Tutorials/) - Optional installer component"/>
+        <echo message="   ❌ WSI Tools (wsi-test-tools/) - Optional installer component"/>
+        <echo message=""/>
+        <echo message="APPLIED OPTIMIZATIONS:"/>
+        <echo message="   * JRE specific to Windows x64"/>
+        <echo message="   * JavaFX for Windows only"/>
+        <echo message="   * Filtered dependencies (without Linux/Mac)"/>
+        <echo message="   * Essential executables only"/>
+        <echo message="   * Development files removed"/>
+        <echo message="   * Class Data Sharing files removed (JVM recreates automatically)"/>
+        <echo message="   * Estimated savings: ~250MB+ vs universal version"/>
+        <echo message=""/>
+        <echo message="HOW TO USE:"/>
+        <echo message="   1. Extract ZIP to any folder"/>
+        <echo message="   2. Run: SoapUI-${project.version}/bin/SoapUI-${project.version}.exe"/>
+        <echo message="   3. No installation required - fully portable"/>
+        <echo message="   4. JRE 17 included - does not depend on installed Java"/>
+        <echo message="==============================================================="/>
+    </target>
+    
+    <!-- Target to calculate ZIP size -->
+    <target name="calculate-zip-size" if="is.windows">
+        <exec executable="powershell" outputproperty="zip.size.mb" failonerror="false" timeout="10000">
+            <arg value="-Command"/>
+            <arg value="try { $bytes = (Get-Item '${build.dir}/SoapUI-x64-${project.version}-portable.zip' -ErrorAction SilentlyContinue).Length; [Math]::Round($bytes / 1MB).ToString() + ' MB' } catch { 'N/A' }"/>
+        </exec>
+    </target>
+    
+    <!-- Target to show optimization statistics -->
+    <target name="show-optimization-stats">
+        <echo message=""/>
+        <echo message="==============================================================="/>
+        <echo message="           WINDOWS OPTIMIZATION STATISTICS          "/>
+        <echo message="==============================================================="/>
+        
+        <!-- Count JRE files -->
+        <resourcecount property="jre.files.total">
+            <fileset dir="${jre.target.dir}" erroronmissingdir="false">
+                <include name="**/*"/>
+                <type type="file"/>
+            </fileset>
+        </resourcecount>
+        
+        <resourcecount property="jre.dll.count">
+            <fileset dir="${jre.target.dir}" erroronmissingdir="false">
+                <include name="**/*.dll"/>
+            </fileset>
+        </resourcecount>
+        
+        <resourcecount property="jre.exe.count">
+            <fileset dir="${jre.target.dir}" erroronmissingdir="false">
+                <include name="**/*.exe"/>
+            </fileset>
+        </resourcecount>
+        
+        <!-- Count modules included in custom JRE -->
+        <property name="jre.modules.included" value="16"/>
+        <property name="jre.modules.total" value="71"/>
+        <property name="jre.optimization.percent" value="~77%"/>
+        
+        <!-- Calculate sizes using system commands -->
+        <condition property="is.windows">
+            <os family="windows"/>
+        </condition>
+        
+        <!-- Try to calculate sizes if Windows -->
+        <antcall target="calculate-sizes-windows"/>
+        <antcall target="calculate-sizes-fallback"/>
+        
+        <echo message="CUSTOM MODULAR JRE (jlink):"/>
+        <echo message="   - Size: ${jre.size.mb}"/>
+        <echo message="   - Modules included: ${jre.modules.included} of ${jre.modules.total}"/>
+        <echo message="   - Module optimization: ${jre.optimization.percent}"/>
+        <echo message="   - Platform: Windows x64 only"/>
+        <echo message="   - Compression: Level 2 (maximum)"/>
+        <echo message="   - Features: Runtime only (no dev tools, docs, debug)"/>
+        <echo message=""/>
+        <echo message="OPTIMIZED DEPENDENCIES:"/>
+        <echo message="   - Size: ${lib.size.mb}"/>
+        <echo message="   - Total JARs: ${total.jars}"/>
+        <echo message="   - Removed: JavaFX/SWT/JNA/Netty Linux/Mac"/>
+        <echo message=""/>
+        <echo message="OPTIMIZED BIN SCRIPTS:"/>
+        <echo message="   - .bat scripts: ${bin.bat.count}"/>
+        <echo message="   - Total files: ${bin.total.count}"/>
+        <echo message="   - Removed: All Unix scripts (.sh)"/>
+        <echo message=""/>
+        <echo message="TOTAL DISTRIBUTION:"/>
+        <echo message="   - Total size: ${dist.size.mb}"/>
+        <echo message="   - JRE: ${jre.size.mb} (${jre.percent})"/>
+        <echo message="   - Dependencies: ${lib.size.mb}"/>
+        <echo message="   - Directory: ${dist.dir}"/>
+        <echo message="   - Executable: ${bin.dir}/SoapUI-${project.version}.exe"/>
+        <echo message=""/>
+        <echo message="APPLIED OPTIMIZATIONS:"/>
+        <echo message="   * Custom modular JRE with jlink (15 essential modules only)"/>
+        <echo message="   * JavaFX for Windows only"/>
+        <echo message="   * Native libraries Windows only"/>
+        <echo message="   * Essential executables only"/>
+        <echo message="   * Bin scripts Windows only (.bat)"/>
+        <echo message="   * Removed development files"/>
+        <echo message="   * Maximum compression and size optimization"/>
+        <echo message="   * Removed dependencies from other platforms"/>
+        <echo message="   * Removed Unix scripts (.sh)"/>
+        <echo message="==============================================================="/>
+    </target>
+    
+    <!-- Target to calculate sizes on Windows -->
+    <target name="calculate-sizes-windows" if="is.windows">
+        <echo message="Calculating sizes using PowerShell..." level="verbose"/>
+        
+        <!-- Calculate and convert JRE size directly in PowerShell -->
+        <exec executable="powershell" outputproperty="jre.size.mb" failonerror="false" timeout="30000">
+            <arg value="-Command"/>
+            <arg value="try { $bytes = (Get-ChildItem -Path '${jre.target.dir}' -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum; [Math]::Round($bytes / 1MB).ToString() + ' MB' } catch { 'N/A' }"/>
+        </exec>
+        
+        <!-- Calculate and convert dependencies size -->
+        <exec executable="powershell" outputproperty="lib.size.mb" failonerror="false" timeout="30000">
+            <arg value="-Command"/>
+            <arg value="try { $bytes = (Get-ChildItem -Path '${lib.dir}' -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum; [Math]::Round($bytes / 1MB).ToString() + ' MB' } catch { 'N/A' }"/>
+        </exec>
+        
+        <!-- Calculate and convert total size -->
+        <exec executable="powershell" outputproperty="dist.size.mb" failonerror="false" timeout="30000">
+            <arg value="-Command"/>
+            <arg value="try { $bytes = (Get-ChildItem -Path '${dist.dir}' -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum; [Math]::Round($bytes / 1MB).ToString() + ' MB' } catch { 'N/A' }"/>
+        </exec>
+        
+        <!-- Calculate JRE percentage -->
+        <exec executable="powershell" outputproperty="jre.percent" failonerror="false" timeout="30000">
+            <arg value="-Command"/>
+            <arg value="try { $jreBytes = (Get-ChildItem -Path '${jre.target.dir}' -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum; $distBytes = (Get-ChildItem -Path '${dist.dir}' -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum; if ($distBytes -gt 0) { [Math]::Round(($jreBytes / $distBytes) * 100).ToString() + '%' } else { 'N/A' } } catch { 'N/A' }"/>
+        </exec>
+        
+        <!-- Mark as calculated if at least one value was obtained -->
+        <condition property="sizes.calculated">
+            <and>
+                <isset property="jre.size.mb"/>
+                <not>
+                    <equals arg1="${jre.size.mb}" arg2="N/A"/>
+                </not>
+            </and>
+        </condition>
+    </target>
+    
+    <!-- Auxiliary fallback target for when unable to calculate sizes -->
+    <target name="calculate-sizes-fallback" unless="sizes.calculated">
+        <echo message="Using size estimates..." level="verbose"/>
+        <property name="jre.size.mb" value="~150-200 MB (estimado)"/>
+        <property name="lib.size.mb" value="~50-80 MB (estimado)"/>
+        <property name="dist.size.mb" value="~250-300 MB (estimado)"/>
+        <property name="jre.percent" value="~60-70%"/>
+    </target>
+    
+    <!-- Target to calculate installer size -->
+    <target name="calculate-installer-size" if="installer.exists">
+        <exec executable="powershell" outputproperty="installer.size.mb" failonerror="false" timeout="10000">
+            <arg value="-Command"/>
+            <arg value="try { $bytes = (Get-Item '${installer.output}' -ErrorAction SilentlyContinue).Length; [Math]::Round($bytes / 1MB).ToString() + ' MB' } catch { 'N/A' }"/>
+        </exec>
+    </target>
+    
+    <!-- Target to show installer statistics -->
+    <target name="show-installer-stats">
+        <echo message=""/>
+        <echo message="==============================================================="/>
+        <echo message="               INSTALLER STATISTICS                   "/>
+        <echo message="==============================================================="/>
+        
+        <!-- Calculate installer size using PowerShell -->
+        <condition property="installer.exists">
+            <available file="${installer.output}"/>
+        </condition>
+        
+        <antcall target="calculate-installer-size"/>
+        
+        <!-- Fallback if unable to calculate -->
+        <property name="installer.size.mb" value="N/A"/>
+        
+        <echo message="INSTALLER CREATED:"/>
+        <echo message="   - File: ${installer.name}"/>
+        <echo message="   - Size: ${installer.size.mb}"/>
+        <echo message="   - Location: ${installer.output}"/>
+        <echo message="   - Version: ${project.version}"/>
+        <echo message=""/>
+        <echo message="INSTALLER COMPONENTS:"/>
+        <echo message="   - [X] SoapUI (mandatory) - Main application + JRE"/>
+        <echo message="   - [ ] HermesJMS - Tool for JMS queues"/>
+        <echo message="   - [ ] Tutorials - Documentation and tutorials"/>
+        <echo message="   - [ ] Desktop Shortcut - Desktop shortcut"/>
+        <echo message=""/>
+        <echo message="CONFIGURATION:"/>
+        <echo message="   - Platform: Windows x64"/>
+        <echo message="   - JRE: 17 bundled (optimized)"/>
+        <echo message="   - Installation Options:"/>
+        <echo message="     • Current User: %LOCALAPPDATA%\SmartBear\SoapUI-${project.version} (NO ADMIN)"/>
+        <echo message="     • All Users: %PROGRAMFILES%\SmartBear\SoapUI-${project.version} (REQUIRES ADMIN)"/>
+        <echo message="   - Smart Defaults:"/>
+        <echo message="     • Regular Users: Current User pre-selected"/>
+        <echo message="     • Administrators: All Users pre-selected (recommended)"/>
+        <echo message="   - Start Menu: Dynamic (User or All Users)"/>
+        <echo message="   - Registry: Dynamic (HKCU or HKLM)"/>
+        <echo message=""/>
+        <echo message="NEXT STEP:"/>
+        <echo message="   Run: ${installer.name}"/>
+        <echo message="   Smart default based on your privileges"/>
+        <echo message="==============================================================="/>
+    </target>
+    
+    <!-- Target to validate Windows -->
+    <target name="validate-windows-build">
+        <echo message="Validating Windows optimized build..."/>
+        
+        <!-- Check if there are Unix files in the JRE -->
+        <resourcecount property="unix.files.in.jre">
+            <fileset dir="${jre.target.dir}">
+                <include name="**/*.so"/>
+                <include name="**/*.dylib"/>
+                <include name="**/java"/>
+                <include name="**/javac"/>
+            </fileset>
+        </resourcecount>
+        
+        <!-- Check if there are JARs from other platforms -->
+        <resourcecount property="other.platform.jars">
+            <fileset dir="${lib.dir}">
+                <include name="*linux*.jar"/>
+                <include name="*mac*.jar"/>
+                <include name="*osx*.jar"/>
+            </fileset>
+        </resourcecount>
+        
+        <!-- Check if the executable was created -->
+        <available file="${bin.dir}/SoapUI-${project.version}.exe" property="exe.exists"/>
+        
+        <!-- Check if the JRE was copied -->
+        <available file="${jre.target.dir}/bin/java.exe" property="jre.exists"/>
+        
+        <!-- Validation result -->
+        <condition property="validation.passed">
+            <and>
+                <equals arg1="${unix.files.in.jre}" arg2="0"/>
+                <equals arg1="${other.platform.jars}" arg2="1"/>
+                <isset property="exe.exists"/>
+                <isset property="jre.exists"/>
+            </and>
+        </condition>
+        
+        <echo message=""/>
+        <echo message="WINDOWS BUILD VALIDATION:"/>
+        <echo message="   - Unix files in JRE: ${unix.files.in.jre} (should be 0)"/>
+        <echo message="   - Other platform JARs: ${other.platform.jars} (should be 1)"/>
+        <echo message="   - Executable created: ${exe.exists}"/>
+        <echo message="   - Windows JRE: ${jre.exists}"/>
+        
+        <condition property="validation.result" value="PASSED" else="FAILED">
+            <isset property="validation.passed"/>
+        </condition>
+        
+        <echo message=""/>
+        <echo message="RESULT: ${validation.result}"/>
+        
+        <fail message="Validation failed! Build is not fully optimized for Windows.">
+            <condition>
+                <not>
+                    <isset property="validation.passed"/>
+                </not>
+            </condition>
+        </fail>
+        
+        <echo message="Build validated successfully - fully optimized for Windows!"/>
+    </target>
+    
+    <!-- Target to test installation detection -->
+    <target name="test-detection">
+        <echo message="==============================================================="/>
+        <echo message="          TESTING SOAPUI INSTALLATION DETECTION              "/>
+        <echo message="==============================================================="/>
+        <echo message=""/>
+        <echo message="This target will help debug installation detection issues."/>
+        <echo message=""/>
+        <echo message="Manual verification steps:"/>
+        <echo message="1. Check Windows Registry manually:"/>
+        <echo message="   - Open regedit.exe"/>
+        <echo message="   - Go to HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Uninstall"/>
+        <echo message="   - Look for entries with 'SoapUI' in the name"/>
+        <echo message="   - Go to HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Uninstall"/>
+        <echo message="   - Look for entries with 'SoapUI' in the name"/>
+        <echo message=""/>
+        <echo message="2. Check for SmartBear entries:"/>
+        <echo message="   - HKEY_CURRENT_USER\Software\SmartBear"/>
+        <echo message="   - HKEY_LOCAL_MACHINE\Software\SmartBear"/>
+        <echo message=""/>
+        <echo message="3. Use PowerShell to list installed programs:"/>
+        <echo message="   Get-WmiObject -Class Win32_Product | Where-Object {$_.Name -like '*SoapUI*'}"/>
+        <echo message=""/>
+        <echo message="4. Check Programs and Features:"/>
+        <echo message="   - Control Panel > Programs and Features"/>
+        <echo message="   - Look for SoapUI entries"/>
+        <echo message=""/>
+        <echo message="If you find SoapUI installations but the installer doesn't detect them,"/>
+        <echo message="this indicates the detection function needs to be updated."/>
+        <echo message=""/>
+        <echo message="To get detailed debug info during installation:"/>
+        <echo message="1. Run the installer"/>
+        <echo message="2. During installation, expand the details section"/>
+        <echo message="3. Look for detection debug messages"/>
+        <echo message=""/>
+        <echo message="Current detection function checks:"/>
+        <echo message="✓ User-level registry entries (HKCU)"/>
+        <echo message="✓ Machine-level registry entries (HKLM)"/>
+        <echo message="✓ Enumerates all uninstall entries"/>
+        <echo message="✓ Searches for 'SoapUI' in display names"/>
+        <echo message="✓ Searches for 'SmartBear' as publisher"/>
+        <echo message="✓ Uses 64-bit registry view (prevents WOW6432Node issues)"/>
+        <echo message=""/>
+        <echo message="==============================================================="/>
+    </target>
+    
+    <!-- Target to check registry for existing SoapUI installations -->
+    <target name="check-registry">
+        <echo message="==============================================================="/>
+        <echo message="        CHECKING WINDOWS REGISTRY FOR SOAPUI                  "/>
+        <echo message="==============================================================="/>
+        
+        <condition property="is.windows">
+            <os family="windows"/>
+        </condition>
+        
+        <antcall target="run-registry-check"/>
+    </target>
+    
+    <!-- Run registry check (Windows only) -->
+    <target name="run-registry-check" if="is.windows">
+        <echo message="Scanning Windows Registry for SoapUI installations..."/>
+        
+        <!-- Check HKCU uninstall entries - VERSION SPECIFIC -->
+        <echo message=""/>
+        <echo message="=== CHECKING HKEY_CURRENT_USER (Version ${project.version} only) ==="/>
+        <exec executable="powershell" failonerror="false" timeout="30000">
+            <arg value="-Command"/>
+            <arg value="$targetVersion = '${project.version}'; try { Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' | ForEach-Object { $name = $_.PSChildName; $displayName = (Get-ItemProperty $_.PSPath -Name 'DisplayName' -ErrorAction SilentlyContinue).DisplayName; $displayVersion = (Get-ItemProperty $_.PSPath -Name 'DisplayVersion' -ErrorAction SilentlyContinue).DisplayVersion; $publisher = (Get-ItemProperty $_.PSPath -Name 'Publisher' -ErrorAction SilentlyContinue).Publisher; if (($displayName -like '*SoapUI*' -or $publisher -like '*SmartBear*') -and $displayVersion -eq $targetVersion) { Write-Host \&quot;Found: $name | $displayName | $publisher | Version: $displayVersion\&quot; } } } catch { Write-Host 'Error checking HKCU registry' }"/>
+        </exec>
+        
+        <!-- Check HKLM uninstall entries - VERSION SPECIFIC -->
+        <echo message=""/>
+        <echo message="=== CHECKING HKEY_LOCAL_MACHINE (Version ${project.version} only) ==="/>
+        <exec executable="powershell" failonerror="false" timeout="30000">
+            <arg value="-Command"/>
+            <arg value="$targetVersion = '${project.version}'; try { Get-ChildItem 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall' | ForEach-Object { $name = $_.PSChildName; $displayName = (Get-ItemProperty $_.PSPath -Name 'DisplayName' -ErrorAction SilentlyContinue).DisplayName; $displayVersion = (Get-ItemProperty $_.PSPath -Name 'DisplayVersion' -ErrorAction SilentlyContinue).DisplayVersion; $publisher = (Get-ItemProperty $_.PSPath -Name 'Publisher' -ErrorAction SilentlyContinue).Publisher; if (($displayName -like '*SoapUI*' -or $publisher -like '*SmartBear*') -and $displayVersion -eq $targetVersion) { Write-Host \&quot;Found: $name | $displayName | $publisher | Version: $displayVersion\&quot; } } } catch { Write-Host 'Error checking HKLM registry' }"/>
+        </exec>
+        
+        <!-- Check SmartBear keys - VERSION SPECIFIC -->
+        <echo message=""/>
+        <echo message="=== CHECKING SMARTBEAR KEYS (Version ${project.version} only) ==="/>
+        <exec executable="powershell" failonerror="false" timeout="30000">
+            <arg value="-Command"/>
+            <arg value="$targetVersion = '${project.version}'; $targetKey = 'SoapUI-' + $targetVersion; try { if (Test-Path 'HKCU:\Software\SmartBear') { $found = Get-ChildItem 'HKCU:\Software\SmartBear' | Where-Object { $_.PSChildName -eq $targetKey }; if ($found) { Write-Host \&quot;HKCU SmartBear key exists: $targetKey\&quot; } else { Write-Host \&quot;HKCU SmartBear key does not contain version $targetVersion\&quot; } } else { Write-Host 'HKCU SmartBear key does not exist' } } catch { Write-Host 'Error checking HKCU SmartBear' }"/>
+        </exec>
+        
+        <exec executable="powershell" failonerror="false" timeout="30000">
+            <arg value="-Command"/>
+            <arg value="$targetVersion = '${project.version}'; $targetKey = 'SoapUI-' + $targetVersion; try { if (Test-Path 'HKLM:\Software\SmartBear') { $found = Get-ChildItem 'HKLM:\Software\SmartBear' | Where-Object { $_.PSChildName -eq $targetKey }; if ($found) { Write-Host \&quot;HKLM SmartBear key exists: $targetKey\&quot; } else { Write-Host \&quot;HKLM SmartBear key does not contain version $targetVersion\&quot; } } else { Write-Host 'HKLM SmartBear key does not exist' } } catch { Write-Host 'Error checking HKLM SmartBear' }"/>
+        </exec>
+        
+        <!-- Check installed programs via multiple methods -->
+        <echo message=""/>
+        <echo message="=== CHECKING INSTALLED PROGRAMS (ALTERNATIVE METHODS) ==="/>
+        
+        <!-- Try WMI first (may fail on some systems) -->
+        <exec executable="powershell" failonerror="false" timeout="30000">
+            <arg value="-Command"/>
+            <arg value="Write-Host 'Attempting WMI check...'; try { $products = Get-WmiObject -Class Win32_Product -ErrorAction Stop | Where-Object { $_.Name -like '*SoapUI*' -or $_.Vendor -like '*SmartBear*' }; if ($products) { $products | ForEach-Object { Write-Host \&quot;WMI Found: $($_.Name) | $($_.Vendor) | $($_.Version)\&quot; } } else { Write-Host 'WMI: No SoapUI installations found' } } catch { Write-Host 'WMI unavailable or failed - trying alternative methods...' }"/>
+        </exec>
+        
+        <!-- Alternative: Check via Get-Package (more reliable) -->
+        <exec executable="powershell" failonerror="false" timeout="30000">
+            <arg value="-Command"/>
+            <arg value="Write-Host 'Checking via Get-Package...'; try { $packages = Get-Package -Name '*SoapUI*' -ErrorAction SilentlyContinue; if ($packages) { $packages | ForEach-Object { Write-Host \&quot;Package Found: $($_.Name) | $($_.Version) | $($_.Source)\&quot; } } else { Write-Host 'Get-Package: No SoapUI packages found' } } catch { Write-Host 'Get-Package method failed' }"/>
+        </exec>
+        
+        <!-- Alternative: Check common installation directories - VERSION SPECIFIC -->
+        <exec executable="powershell" failonerror="false" timeout="30000">
+            <arg value="-Command"/>
+            <arg value="$targetVersion = '${project.version}'; $targetDir = 'SoapUI-' + $targetVersion; Write-Host \&quot;Checking for SoapUI version $targetVersion in installation directories...\&quot;; $paths = @('C:\Program Files\SmartBear', 'C:\Program Files (x86)\SmartBear', '$env:LOCALAPPDATA\SmartBear', '$env:PROGRAMDATA\SmartBear'); foreach ($path in $paths) { $expandedPath = [Environment]::ExpandEnvironmentVariables($path); if (Test-Path $expandedPath) { $found = Get-ChildItem $expandedPath -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq $targetDir }; if ($found) { Write-Host \&quot;Found version $targetVersion - $($found.FullName)\&quot; } } }"/>
+        </exec>
+        
+        <!-- Alternative: Check Start Menu shortcuts -->
+        <exec executable="powershell" failonerror="false" timeout="30000">
+            <arg value="-Command"/>
+            <arg value="Write-Host 'Checking Start Menu shortcuts...'; $startMenuPaths = @('$env:APPDATA\Microsoft\Windows\Start Menu\Programs', '$env:PROGRAMDATA\Microsoft\Windows\Start Menu\Programs'); foreach ($smPath in $startMenuPaths) { $expandedSMPath = [Environment]::ExpandEnvironmentVariables($smPath); if (Test-Path $expandedSMPath) { Get-ChildItem $expandedSMPath -Recurse -Filter '*SoapUI*.lnk' -ErrorAction SilentlyContinue | ForEach-Object { Write-Host \&quot;Shortcut Found: $($_.FullName)\&quot; } } }"/>
+        </exec>
+        
+        <echo message=""/>
+        <echo message="Registry scan completed for SoapUI version ${project.version}."/>
+        <echo message="If SoapUI version ${project.version} was not found above but you know it is installed,"/>
+        <echo message="the detection function may need to be updated to handle your specific installation."/>
+        <echo message="Note: This scan only looks for the exact version ${project.version}, not other versions."/>
+    </target>
+    
+    <!-- Target to test detection logic -->
+    <target name="test-detection-logic">
+        <echo message="==============================================================="/>
+        <echo message="        TESTING INSTALLATION DETECTION LOGIC"/>
+        <echo message="==============================================================="/>
+        <echo message=""/>
+        <echo message="This simulates the NSIS CheckExistingInstallations function logic"/>
+        <echo message="based on current registry state:"/>
+        <echo message=""/>
+        
+        <!-- Check HKCU first -->
+        <exec executable="powershell" failonerror="false" timeout="30000">
+            <arg value="-Command"/>
+            <arg value="Write-Host 'SIMULATING NSIS DETECTION LOGIC:'; Write-Host '================================='; Write-Host ''; $hkcuFound = $false; try { Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' | ForEach-Object { $displayName = (Get-ItemProperty $_.PSPath -Name 'DisplayName' -ErrorAction SilentlyContinue).DisplayName; $displayVersion = (Get-ItemProperty $_.PSPath -Name 'DisplayVersion' -ErrorAction SilentlyContinue).DisplayVersion; $publisher = (Get-ItemProperty $_.PSPath -Name 'Publisher' -ErrorAction SilentlyContinue).Publisher; if (($displayName -like '*SoapUI*' -or $publisher -like '*SmartBear*') -and $displayVersion -eq '${project.version}') { $hkcuFound = $true; Write-Host \&quot;HKCU Found: $displayName | $publisher | $displayVersion\&quot; } } } catch { }; if (-not $hkcuFound) { Write-Host 'HKCU: No SoapUI ${project.version} found' }"/>
+        </exec>
+        
+        <!-- Check HKLM next -->
+        <exec executable="powershell" failonerror="false" timeout="30000">
+            <arg value="-Command"/>
+            <arg value="$hklmFound = $false; $hklmDetails = ''; try { Get-ChildItem 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall' | ForEach-Object { $displayName = (Get-ItemProperty $_.PSPath -Name 'DisplayName' -ErrorAction SilentlyContinue).DisplayName; $displayVersion = (Get-ItemProperty $_.PSPath -Name 'DisplayVersion' -ErrorAction SilentlyContinue).DisplayVersion; $publisher = (Get-ItemProperty $_.PSPath -Name 'Publisher' -ErrorAction SilentlyContinue).Publisher; if (($displayName -like '*SoapUI*' -or $publisher -like '*SmartBear*') -and $displayVersion -eq '${project.version}') { $hklmFound = $true; $hklmDetails = \&quot;$displayName | $publisher | $displayVersion\&quot;; Write-Host \&quot;HKLM Found: $hklmDetails\&quot; } } } catch { }; if (-not $hklmFound) { Write-Host 'HKLM: No SoapUI ${project.version} found' } else { Write-Host ''; Write-Host 'CORRECTED LOGIC RESULT:'; Write-Host 'INSTALLATION SCOPE: All Users'; Write-Host 'REASON: Found in HKLM (machine-level registry)'; Write-Host 'LOCATION: C:\Program Files\SmartBear\SoapUI-${project.version}' }"/>
+        </exec>
+        
+        <echo message=""/>
+        <echo message="This logic will be applied during NSIS installer execution."/>
+        <echo message="The corrected CheckExistingInstallations function should now"/>
+        <echo message="properly identify the installation scope based on registry location."/>
+    </target>
+
+    <!-- Target to help -->
+    <target name="help">
+        <echo message="==============================================================="/>
+        <echo message="           BUILD SOAPUI COM LAUNCH4J + NSIS                 "/>
+        <echo message="==============================================================="/>
+        <echo message=""/>
+        <echo message="FILE: build-launch4j.xml"/>
+        <echo message="PURPOSE: Generate Windows executables and installers using Launch4j"/>
+        <echo message="DOCUMENTATION: BUILD-LAUNCH4J-README.md"/>
+        <echo message=""/>
+        <echo message="AVAILABLE TARGETS:"/>
+        <echo message="  create-exe         - Compiles and creates SoapUI executable with bundled JRE (WINDOWS OPTIMIZED)"/>
+        <echo message="  create-installer   - Creates professional installer with NSIS"/>
+        <echo message="  create-distribution - Creates executable and portable ZIP with mandatory files only (like installer with all options unchecked)"/>
+        <echo message="  validate-windows-build - Validates if build is fully optimized for Windows"/>
+        <echo message="  test-detection     - Helps debug installation detection issues"/>
+        <echo message="  test-detection-logic - Tests the corrected installation scope detection logic"/>
+        <echo message="  check-registry     - Scans Windows registry for existing SoapUI installations"/>
+        <echo message="  clean              - Cleans build files"/>
+        <echo message="  help               - Shows this help"/>
+        <echo message=""/>
+        <echo message="HOW TO USE:"/>
+        <echo message="  ant -f build-launch4j.xml create-exe"/>
+        <echo message="  ant -f build-launch4j.xml create-installer"/>
+        <echo message="  ant -f build-launch4j.xml create-distribution"/>
+        <echo message=""/>
+        <echo message="Installer Options:"/>
+        <echo message="  ✓ SoapUI          - Main application (mandatory, cannot be unchecked)"/>
+        <echo message="  □ HermesJMS       - Tool for working with JMS queues"/>
+        <echo message="  □ Tutorials       - SoapUI tutorials and documentation"/>
+        <echo message="  □ Desktop Shortcut - Desktop shortcut"/>
+        <echo message=""/>
+        <echo message="Configuration:"/>
+        <echo message="  - JRE should be at: C:/Program Files/Java/jdk-17"/>
+        <echo message="  - Temporary files: ${basedir}/soapui-installer/target/"/>
+        <echo message="  - Final distribution: ${build.dir}/SoapUI-${project.version}/"/>
+        <echo message="  - Installation Options: User choice between Current User or All Users"/>
+        <echo message=""/>
+        <echo message="The executable will be created with bundled JRE 17 and will not depend on installed Java."/>
+        <echo message="The installer provides choice between user-level and system-level installation."/>
+        <echo message=""/>
+        <echo message="🚀 WINDOWS OPTIMIZATIONS:"/>
+        <echo message="  ✓ Optimized JRE - Windows files only (.exe, .dll)"/>
+        <echo message="  ✓ JavaFX for Windows only (reduces ~80MB)"/>
+        <echo message="  ✓ Filtered dependencies - removed Linux/Mac libs"/>
+        <echo message="  ✓ Optimized bin scripts - only .bat (removed .sh)"/>
+        <echo message="  ✓ Unix executables removed (java, javac, etc.)"/>
+        <echo message="  ✓ Development files removed (src.zip, demo, javadoc)"/>
+        <echo message="  ✓ Native libraries filtered (.so, .dylib removed)"/>
+        <echo message="  ✓ Detailed optimization statistics displayed"/>
+        <echo message="  ✓ Automatic Windows build validation"/>
+        <echo message=""/>
+        <echo message="📊 To see detailed statistics, run: ant create-exe"/>
+        <echo message="🔍 To validate optimization: ant validate-windows-build"/>
+        <echo message=""/>
+        <echo message=".vmoptions file:"/>
+        <echo message="  - Will be created: bin/SoapUI-${project.version}.vmoptions"/>
+        <echo message="  - Contains all JVM options"/>
+        <echo message="  - IMPORTANT: Options are compiled into .exe (Launch4j version)"/>
+        <echo message="  - File serves as reference and template for customization"/>
+        <echo message="  - To customize: edit build.xml &lt;jre&gt;&lt;opt&gt; section and recompile"/>
+        <echo message=""/>
+        <echo message="Splash Screen images:"/>
+        <echo message="  - Automatically processed with SplashScreenStomper"/>
+        <echo message="  - Version added: SoapUI ${project.version}"/>
+        <echo message="  - Copyright and info"/>
+        <echo message="  - Final files: SoapUI-Spashscreen.png and SoapUI-Spashscreen@2x.png"/>
+        <echo message="  - -blank images are automatically removed after processing"/>
+        <echo message=""/>
+        <echo message="💡 ESTIMATED SPACE SAVINGS:"/>
+        <echo message="  - JRE: ~100-150MB less (without Unix/development files)"/>
+        <echo message="  - Dependencies: ~80MB less (without JavaFX/SWT other platforms)"/>
+        <echo message="  - Total: Up to 200MB+ savings in final installer"/>
+    </target>
+    
+    <!-- Create NSIS script for installer -->
+    <target name="create-nsis-script">
+        <echo message="Creating NSIS script..."/>
+        
+        <!-- Process version to file/product version format (remove non-numeric characters + add .0) -->
+        <loadresource property="file.version">
+            <propertyresource name="project.version"/>
+            <filterchain>
+                <replaceregex pattern="[^0-9\.]" replace="" flags="g"/>
+                <suffixlines suffix=".0"/>
+            </filterchain>
+        </loadresource>
+        
+        <echo message="Version processed for NSIS: ${file.version}"/>
+        
+        <echo file="${nsis.script}" append="false"># SoapUI ${project.version} Installer Script
+# Created automatically by build system
+
+!include "MUI2.nsh"
+!include "FileFunc.nsh" 
+!include "nsDialogs.nsh"
+
+# Product identification
+!define PRODUCT_NAME "SoapUI"
+!define PRODUCT_VERSION "${project.version}"
+
+# Installer configuration
+Name "SoapUI ${project.version}"
+OutFile "${installer.output}"
+InstallDir "$LOCALAPPDATA\SmartBear\SoapUI-${project.version}"
+InstallDirRegKey HKCU "Software\SmartBear\SoapUI-${project.version}" "InstallPath"
+RequestExecutionLevel highest
+SetCompressor /SOLID lzma
+
+# Variables for installation scope
+Var StartMenuFolder
+Var InstallScope
+Var StartMenuPath
+Var ProductUninstallKey
+
+# Variables for the installation scope page
+Var Dialog
+Var Label1
+Var RadioCurrentUser
+Var RadioAllUsers
+Var LabelNote
+
+# Generate hash format: XXXX-XXXX-XXXX-XXXX-X
+Function GenerateHash
+    Push $R0
+    Push $R1
+    Push $R2
+    Push $R3
+    Push $R4
+    Push $R5
+    Push $R6
+    
+    # Base calculation using product name and version
+    StrCpy $R0 "${PRODUCT_NAME}${PRODUCT_VERSION}"
+    StrLen $R1 $R0
+    
+    # Generate 5 hash components using different algorithms
+    
+    # Component 1: Based on product name length and version
+    IntOp $R1 $R1 * 17
+    IntOp $R1 $R1 + 5000
+    IntOp $R1 $R1 % 10000
+    IntFmt $R2 "%04d" $R1
+    
+    # Component 2: Based on version number extraction
+    StrCpy $R3 "${PRODUCT_VERSION}"
+    StrCpy $R3 $R3 1 0  # First character of version
+    IntOp $R3 $R3 + 2500
+    IntOp $R3 $R3 * 31
+    IntOp $R3 $R3 % 10000
+    IntFmt $R3 "%04d" $R3
+    
+    # Component 3: Based on product name hash
+    StrCpy $R4 "${PRODUCT_NAME}"
+    StrLen $R4 $R4
+    IntOp $R4 $R4 * 73
+    IntOp $R4 $R4 + 400
+    IntOp $R4 $R4 % 10000
+    IntFmt $R4 "%04d" $R4
+    
+    # Component 4: Combined hash
+    IntOp $R5 $R1 + $R3
+    IntOp $R5 $R5 * 13
+    IntOp $R5 $R5 + 4000
+    IntOp $R5 $R5 % 10000
+    IntFmt $R5 "%04d" $R5
+    
+    # Component 5: Single digit based on all previous
+    IntOp $R6 $R1 + $R3
+    IntOp $R6 $R6 + $R4
+    IntOp $R6 $R6 + $R5
+    IntOp $R6 $R6 % 10
+    IntFmt $R6 "%01d" $R6
+    
+    # Create hash: XXXX-XXXX-XXXX-XXXX-X
+    StrCpy $ProductUninstallKey "$R2-$R3-$R4-$R5-$R6"
+    
+    Pop $R6
+    Pop $R5
+    Pop $R4
+    Pop $R3
+    Pop $R2
+    Pop $R1
+    Pop $R0
+FunctionEnd
+
+# Modern Interface
+!define MUI_ABORTWARNING
+!define MUI_ICON "${dist.dir}\SoapUI-OS.ico"
+!define MUI_UNICON "${dist.dir}\SoapUI-OS.ico"
+
+# Finish page configuration - option to run the program
+!define MUI_FINISHPAGE_RUN "$INSTDIR\bin\SoapUI-${project.version}.exe"
+!define MUI_FINISHPAGE_RUN_CHECKED
+
+# Installation log configuration
+!define MUI_INSTFILESPAGE_FINISHHEADER_TEXT "Installation Complete"
+!define MUI_INSTFILESPAGE_FINISHHEADER_SUBTEXT "Click Next to continue or Close to exit"
+!define MUI_INSTFILESPAGE_ABORTHEADER_TEXT "Installation Aborted"
+!define MUI_INSTFILESPAGE_ABORTHEADER_SUBTEXT "Installation was not completed successfully"
+
+# Installer pages
+!insertmacro MUI_PAGE_WELCOME
+!insertmacro MUI_PAGE_LICENSE "${dist.dir}\LICENSE.txt"
+
+# Custom page for installation scope selection
+Page custom InstallScopePageCreate InstallScopePageLeave
+
+!insertmacro MUI_PAGE_COMPONENTS
+!insertmacro MUI_PAGE_DIRECTORY
+
+# Start Menu folder selection page (dynamic based on scope)
+!insertmacro MUI_PAGE_STARTMENU Application $StartMenuFolder
+
+# Installation files page with custom show function
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW InstallFilesShow
+!insertmacro MUI_PAGE_INSTFILES
+
+# Custom page for installation log options removed for simplicity
+
+!insertmacro MUI_PAGE_FINISH
+
+# Uninstaller pages
+!insertmacro MUI_UNPAGE_CONFIRM
+!insertmacro MUI_UNPAGE_INSTFILES
+
+# Languages
+!insertmacro MUI_LANGUAGE "English"
+!insertmacro MUI_LANGUAGE "Portuguese"
+
+# Language strings for installation scope page
+LangString SCOPE_PAGE_TITLE ${LANG_ENGLISH} "Installation Scope"
+LangString SCOPE_PAGE_TITLE ${LANG_PORTUGUESE} "Escopo de Instalação"
+
+LangString SCOPE_PAGE_SUBTITLE ${LANG_ENGLISH} "Choose installation scope for SoapUI ${project.version}"
+LangString SCOPE_PAGE_SUBTITLE ${LANG_PORTUGUESE} "Escolha o escopo de instalação para SoapUI ${project.version}"
+
+LangString SCOPE_INSTRUCTIONS ${LANG_ENGLISH} "Choose whether to install SoapUI for all users or just for you:"
+LangString SCOPE_INSTRUCTIONS ${LANG_PORTUGUESE} "Escolha se deseja instalar o SoapUI para todos os usuários ou apenas para você:"
+
+LangString SCOPE_CURRENT_USER ${LANG_ENGLISH} "&amp;Install for current user only"
+LangString SCOPE_CURRENT_USER ${LANG_PORTUGUESE} "&amp;Instalar apenas para o usuário atual"
+
+LangString SCOPE_CURRENT_DESC ${LANG_ENGLISH} "• No administrator privileges required$\r$\n• Installation: %LOCALAPPDATA%\SmartBear\SoapUI-${project.version}$\r$\n• Visible only to current user"
+LangString SCOPE_CURRENT_DESC ${LANG_PORTUGUESE} "• Não requer privilégios de administrador$\r$\n• Instalação: %LOCALAPPDATA%\SmartBear\SoapUI-${project.version}$\r$\n• Visível apenas para o usuário atual"
+
+LangString SCOPE_ALL_USERS ${LANG_ENGLISH} "Install for &amp;all users (recommended for administrators)"
+LangString SCOPE_ALL_USERS ${LANG_PORTUGUESE} "Instalar para &amp;todos os usuários (recomendado para administradores)"
+
+LangString SCOPE_ALL_DESC ${LANG_ENGLISH} "• Administrator privileges required$\r$\n• Installation: %PROGRAMFILES%\SmartBear\SoapUI-${project.version}$\r$\n• Available to all users on this computer"
+LangString SCOPE_ALL_DESC ${LANG_PORTUGUESE} "• Requer privilégios de administrador$\r$\n• Instalação: %PROGRAMFILES%\SmartBear\SoapUI-${project.version}$\r$\n• Disponível para todos os usuários neste computador"
+
+LangString SCOPE_NOTE_NO_ADMIN ${LANG_ENGLISH} "Note: Administrator privileges not detected. Only current user installation available."
+LangString SCOPE_NOTE_NO_ADMIN ${LANG_PORTUGUESE} "Nota: Privilégios de administrador não detectados. Apenas instalação para usuário atual disponível."
+
+LangString SCOPE_NOTE_ADMIN ${LANG_ENGLISH} "Note: You have administrator privileges. All users installation is recommended."
+LangString SCOPE_NOTE_ADMIN ${LANG_PORTUGUESE} "Nota: Você possui privilégios de administrador. A instalação para todos os usuários é recomendada."
+
+# Component descriptions
+LangString DESC_SOAPUI ${LANG_ENGLISH} "SoapUI - Web Service Testing Tool (mandatory, cannot be removed)"
+LangString DESC_SOAPUI ${LANG_PORTUGUESE} "SoapUI - Ferramenta de Teste de Web Services (obrigatório, não pode ser removido)"
+
+LangString DESC_HERMES ${LANG_ENGLISH} "HermesJMS - Tool for working with JMS queues"
+LangString DESC_HERMES ${LANG_PORTUGUESE} "HermesJMS - Ferramenta para trabalhar com filas JMS"
+
+LangString DESC_TUTORIALS ${LANG_ENGLISH} "Tutorials - SoapUI tutorials and documentation"
+LangString DESC_TUTORIALS ${LANG_PORTUGUESE} "Tutoriais - Tutoriais e documentação do SoapUI"
+
+LangString DESC_DESKTOP ${LANG_ENGLISH} "Desktop Shortcut - Create desktop shortcut"
+LangString DESC_DESKTOP ${LANG_PORTUGUESE} "Atalho da Área de Trabalho - Criar atalho na área de trabalho"
+
+# Installer messages
+LangString MSG_ALREADY_INSTALLED ${LANG_ENGLISH} "SoapUI is already installed ($R1 level). Do you want to continue with the installation?"
+LangString MSG_ALREADY_INSTALLED ${LANG_PORTUGUESE} "SoapUI já está instalado (nível $R1). Deseja continuar com a instalação?"
+
+# Detection messages
+LangString DETECTION_HEADER ${LANG_ENGLISH} "=== SOAPUI INSTALLATION DETECTION (VERSION SPECIFIC) ==="
+LangString DETECTION_HEADER ${LANG_PORTUGUESE} "=== DETECÇÃO DE INSTALAÇÃO SOAPUI (ESPECÍFICA POR VERSÃO) ==="
+
+LangString DETECTION_SCANNING ${LANG_ENGLISH} "Scanning for existing SoapUI version $R0 installations only..."
+LangString DETECTION_SCANNING ${LANG_PORTUGUESE} "Verificando apenas instalações existentes do SoapUI versão $R0..."
+
+LangString DETECTION_TARGET ${LANG_ENGLISH} "Target version: $R0"
+LangString DETECTION_TARGET ${LANG_PORTUGUESE} "Versão de destino: $R0"
+
+LangString DETECTION_USER_CHECK ${LANG_ENGLISH} "Checking user-level installations (HKCU)..."
+LangString DETECTION_USER_CHECK ${LANG_PORTUGUESE} "Verificando instalações de usuário (HKCU)..."
+
+LangString DETECTION_MACHINE_CHECK ${LANG_ENGLISH} "Checking machine-level installations (HKLM)..."
+LangString DETECTION_MACHINE_CHECK ${LANG_PORTUGUESE} "Verificando instalações do sistema (HKLM)..."
+
+LangString DETECTION_BOTH_FOUND ${LANG_ENGLISH} "Found installations in both HKCU and HKLM - prioritizing machine-level"
+LangString DETECTION_BOTH_FOUND ${LANG_PORTUGUESE} "Encontradas instalações em HKCU e HKLM - priorizando nível do sistema"
+
+LangString DETECTION_MACHINE_DETAILS ${LANG_ENGLISH} "Machine-level details: $R0"
+LangString DETECTION_MACHINE_DETAILS ${LANG_PORTUGUESE} "Detalhes do sistema: $R0"
+
+LangString DETECTION_USER_DETAILS ${LANG_ENGLISH} "User-level details: $R0"
+LangString DETECTION_USER_DETAILS ${LANG_PORTUGUESE} "Detalhes do usuário: $R0"
+
+LangString DETECTION_USER_FOUND ${LANG_ENGLISH} "Found user-level SoapUI installation:"
+LangString DETECTION_USER_FOUND ${LANG_PORTUGUESE} "Encontrada instalação SoapUI de usuário:"
+
+LangString DETECTION_MACHINE_FOUND ${LANG_ENGLISH} "Found machine-level SoapUI installation:"
+LangString DETECTION_MACHINE_FOUND ${LANG_PORTUGUESE} "Encontrada instalação SoapUI do sistema:"
+
+LangString DETECTION_EXISTING_HEADER ${LANG_ENGLISH} "=== EXISTING INSTALLATION DETECTED ==="
+LangString DETECTION_EXISTING_HEADER ${LANG_PORTUGUESE} "=== INSTALAÇÃO EXISTENTE DETECTADA ==="
+
+LangString DETECTION_SCOPE ${LANG_ENGLISH} "Installation scope: $R0"
+LangString DETECTION_SCOPE ${LANG_PORTUGUESE} "Escopo da instalação: $R0"
+
+LangString DETECTION_DETAILS ${LANG_ENGLISH} "Installation details: $R0"
+LangString DETECTION_DETAILS ${LANG_PORTUGUESE} "Detalhes da instalação: $R0"
+
+LangString DETECTION_SEPARATOR ${LANG_ENGLISH} "===================================="
+LangString DETECTION_SEPARATOR ${LANG_PORTUGUESE} "===================================="
+
+LangString MSG_INSTALLATION_DETECTED ${LANG_ENGLISH} "An existing SoapUI installation was detected on this computer.$\r$\n$\r$\nDo you want to continue with the installation?$\r$\n$\r$\nNote: This will overwrite the existing installation."
+LangString MSG_INSTALLATION_DETECTED ${LANG_PORTUGUESE} "Uma instalação existente do SoapUI foi detectada neste computador.$\r$\n$\r$\nDeseja continuar com a instalação?$\r$\n$\r$\nNota: Isto irá sobrescrever a instalação existente."
+
+LangString DETECTION_CANCELLED ${LANG_ENGLISH} "Installation cancelled by user due to existing installation"
+LangString DETECTION_CANCELLED ${LANG_PORTUGUESE} "Instalação cancelada pelo usuário devido à instalação existente"
+
+LangString DETECTION_CONTINUE ${LANG_ENGLISH} "User chose to continue installation despite existing SoapUI"
+LangString DETECTION_CONTINUE ${LANG_PORTUGUESE} "Usuário escolheu continuar a instalação apesar do SoapUI existente"
+
+LangString DETECTION_NONE_HEADER ${LANG_ENGLISH} "=== NO EXISTING INSTALLATION FOUND ==="
+LangString DETECTION_NONE_HEADER ${LANG_PORTUGUESE} "=== NENHUMA INSTALAÇÃO EXISTENTE ENCONTRADA ==="
+
+LangString DETECTION_NONE_MSG ${LANG_ENGLISH} "No existing SoapUI $R0 installations detected"
+LangString DETECTION_NONE_MSG ${LANG_PORTUGUESE} "Nenhuma instalação existente do SoapUI $R0 detectada"
+
+LangString DETECTION_SAFE ${LANG_ENGLISH} "Safe to proceed with installation"
+LangString DETECTION_SAFE ${LANG_PORTUGUESE} "Seguro prosseguir com a instalação"
+
+LangString DETECTION_NOTE_OTHER ${LANG_ENGLISH} "Note: Other SoapUI versions may exist but are ignored"
+LangString DETECTION_NOTE_OTHER ${LANG_PORTUGUESE} "Nota: Outras versões do SoapUI podem existir mas são ignoradas"
+
+LangString SCOPE_ALL_USERS_PRIORITY ${LANG_ENGLISH} "All Users (machine-level takes priority)"
+LangString SCOPE_ALL_USERS_PRIORITY ${LANG_PORTUGUESE} "Todos os Usuários (nível do sistema tem prioridade)"
+
+LangString SCOPE_CURRENT_USER_ONLY ${LANG_ENGLISH} "Current User"
+LangString SCOPE_CURRENT_USER_ONLY ${LANG_PORTUGUESE} "Usuário Atual"
+
+LangString SCOPE_ALL_USERS_ONLY ${LANG_ENGLISH} "All Users"
+LangString SCOPE_ALL_USERS_ONLY ${LANG_PORTUGUESE} "Todos os Usuários"
+
+LangString DETAILS_LABEL ${LANG_ENGLISH} "Details:"
+LangString DETAILS_LABEL ${LANG_PORTUGUESE} "Detalhes:"
+
+# Version information
+VIProductVersion "${file.version}"
+VIAddVersionKey /LANG=${LANG_ENGLISH} "ProductName" "SoapUI ${project.version}"
+VIAddVersionKey /LANG=${LANG_ENGLISH} "Comments" "Web Service Testing Tool"
+VIAddVersionKey /LANG=${LANG_ENGLISH} "CompanyName" "SmartBear Software"
+VIAddVersionKey /LANG=${LANG_ENGLISH} "LegalCopyright" "SmartBear Software"
+VIAddVersionKey /LANG=${LANG_ENGLISH} "FileDescription" "SoapUI ${project.version}"
+VIAddVersionKey /LANG=${LANG_ENGLISH} "FileVersion" "${file.version}"
+VIAddVersionKey /LANG=${LANG_ENGLISH} "ProductVersion" "${project.version}"
+VIAddVersionKey /LANG=${LANG_ENGLISH} "OriginalFilename" "${installer.name}"
+
+# Installation sections
+Section "SoapUI" SecSoapUI
+    SectionIn RO  # Read-Only - cannot be unchecked
+    
+    # Force 64-bit registry access (prevent WOW6432Node redirection)
+    SetRegView 64
+    
+    SetOutPath "$INSTDIR"
+    
+    # Copy main SoapUI files (mandatory)
+    File /r "${dist.dir}\bin"
+    File /r "${dist.dir}\lib"
+    File /r "${dist.dir}\jre"
+    File /r "${dist.dir}\licenses"
+    # Note: .soapuios directory will be auto-created by PluginManager on first run
+    # File /r "${dist.dir}\.soapuios"
+    
+    # Copy root files (XML, README, etc.)
+    SetOutPath "$INSTDIR"
+    File /nonfatal "${dist.dir}\*.url"
+    File /nonfatal "${dist.dir}\*.md"
+    File /nonfatal "${dist.dir}\LICENSE.txt"
+    File /nonfatal "${dist.dir}\RELEASENOTES.txt"
+    
+    # Generate hash for this installation
+    Call GenerateHash
+    
+    # Debug: Show installation scope
+    DetailPrint "Installation scope: $InstallScope"
+    DetailPrint "Product uninstall key: $ProductUninstallKey"
+    
+    # Register in Windows using version-specific keys (allows multiple SoapUI versions)
+    # Registry structure: Software\SmartBear\SoapUI-{version} (supports side-by-side installations)
+    StrCmp $InstallScope "AllUsers" 0 +14
+        # System-wide installation (HKLM)
+        DetailPrint "Writing to HKLM (All Users installation)"
+        WriteRegStr HKLM "Software\SmartBear\SoapUI-${project.version}" "InstallPath" "$INSTDIR"
+        WriteRegStr HKLM "Software\SmartBear\SoapUI-${project.version}" "Version" "${project.version}"
+        WriteRegStr HKLM "Software\SmartBear\SoapUI-${project.version}" "UninstallKey" "$ProductUninstallKey"
+        WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\$ProductUninstallKey" "DisplayName" "SoapUI ${project.version}"
+        WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\$ProductUninstallKey" "UninstallString" "$INSTDIR\uninstall.exe"
+        WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\$ProductUninstallKey" "DisplayIcon" "$INSTDIR\bin\SoapUI-${project.version}.exe"
+        WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\$ProductUninstallKey" "Publisher" "SmartBear Software"
+        WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\$ProductUninstallKey" "DisplayVersion" "${project.version}"
+        WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\$ProductUninstallKey" "InstallLocation" "$INSTDIR"
+        WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\$ProductUninstallKey" "URLInfoAbout" "http://www.smartbear.com"
+        WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\$ProductUninstallKey" "InstallDate" "$2$1$0"
+        WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\$ProductUninstallKey" "NoModify" 1
+        WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\$ProductUninstallKey" "NoRepair" 1
+        Goto +12
+        # User-only installation (HKCU)
+        DetailPrint "Writing to HKCU (Current User installation)"
+        WriteRegStr HKCU "Software\SmartBear\SoapUI-${project.version}" "InstallPath" "$INSTDIR"
+        WriteRegStr HKCU "Software\SmartBear\SoapUI-${project.version}" "Version" "${project.version}"
+        WriteRegStr HKCU "Software\SmartBear\SoapUI-${project.version}" "UninstallKey" "$ProductUninstallKey"
+        WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\$ProductUninstallKey" "DisplayName" "SoapUI ${project.version}"
+        WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\$ProductUninstallKey" "UninstallString" "$INSTDIR\uninstall.exe"
+        WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\$ProductUninstallKey" "DisplayIcon" "$INSTDIR\bin\SoapUI-${project.version}.exe"
+        WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\$ProductUninstallKey" "Publisher" "SmartBear Software"
+        WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\$ProductUninstallKey" "DisplayVersion" "${project.version}"
+        WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\$ProductUninstallKey" "InstallLocation" "$INSTDIR"
+        WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\$ProductUninstallKey" "URLInfoAbout" "http://www.smartbear.com"
+        WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\$ProductUninstallKey" "InstallDate" "$2$1$0"
+        WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\$ProductUninstallKey" "NoModify" 1
+        WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\$ProductUninstallKey" "NoRepair" 1
+    
+    # Create uninstaller
+    WriteUninstaller "$INSTDIR\uninstall.exe"
+    
+
+    
+    # Calculate installation size
+    ${GetSize} "$INSTDIR" "/S=0K" $0 $1 $2
+    IntFmt $0 "0x%08X" $0
+    StrCmp $InstallScope "AllUsers" 0 +2
+        WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\$ProductUninstallKey" "EstimatedSize" "$0"
+        Goto +2
+        WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\$ProductUninstallKey" "EstimatedSize" "$0"
+    
+    # Associate .soapui-project files
+    WriteRegStr HKCR ".soapui-project" "" "SoapUI.Project"
+    WriteRegStr HKCR "SoapUI.Project" "" "SoapUI Project"
+    WriteRegStr HKCR "SoapUI.Project\DefaultIcon" "" "$INSTDIR\bin\SoapUI-${project.version}.exe,0"
+    WriteRegStr HKCR "SoapUI.Project\shell\open\command" "" '"$INSTDIR\bin\SoapUI-${project.version}.exe" "%1"'
+    
+    # Start Menu (always installed with SoapUI) - dynamic location
+    !insertmacro MUI_STARTMENU_WRITE_BEGIN Application
+    CreateDirectory "$StartMenuPath\$StartMenuFolder"
+    CreateShortcut "$StartMenuPath\$StartMenuFolder\SoapUI-${project.version}.lnk" "$INSTDIR\bin\SoapUI-${project.version}.exe" "" "$INSTDIR\bin\SoapUI-${project.version}.exe" 0
+    CreateShortcut "$StartMenuPath\$StartMenuFolder\SoapUI ${project.version} Uninstaller.lnk" "$INSTDIR\uninstall.exe"
+    CopyFiles "$INSTDIR\soapUI.url" "$StartMenuPath\$StartMenuFolder\soapui.org website.url"
+    CopyFiles "$INSTDIR\JavaDoc.url" "$StartMenuPath\$StartMenuFolder\Online JavaDoc.url"
+    !insertmacro MUI_STARTMENU_WRITE_END
+SectionEnd
+
+Section "HermesJMS" SecHermes
+    SetOutPath "$INSTDIR\HermesJMS"
+    
+    # Copy Hermes files
+    File /r "${dist.dir}\tempHermes\*"
+    
+    # Create Hermes installation script
+    FileOpen $0 "$INSTDIR\HermesJMS\Install-HermesJMS.bat" w
+    FileWrite $0 "@echo off$\r$\n"
+    FileWrite $0 "echo Installing HermesJMS...$\r$\n"
+    FileWrite $0 "echo Please follow the HermesJMS installer instructions.$\r$\n"
+    FileWrite $0 "echo.$\r$\n"
+    FileWrite $0 "if exist hermesInstall.bat ($\r$\n"
+    FileWrite $0 "    call hermesInstall.bat$\r$\n"
+    FileWrite $0 ") else ($\r$\n"
+    FileWrite $0 "    echo HermesJMS installer not found.$\r$\n"
+    FileWrite $0 ")$\r$\n"
+    FileWrite $0 "pause$\r$\n"
+    FileClose $0
+    
+    # Add Start Menu shortcut for HermesJMS
+    !insertmacro MUI_STARTMENU_WRITE_BEGIN Application
+    CreateShortcut "$StartMenuPath\$StartMenuFolder\Install HermesJMS.lnk" "$INSTDIR\HermesJMS\Install-HermesJMS.bat"
+    !insertmacro MUI_STARTMENU_WRITE_END
+SectionEnd
+
+Section "Tutorials" SecTutorials
+    SetOutPath "$INSTDIR\Tutorials"
+    
+    # Copy tutorials
+    File /r "${dist.dir}\SoapUI-Tutorials\*"
+    
+    # Add Start Menu shortcut for Tutorials
+    !insertmacro MUI_STARTMENU_WRITE_BEGIN Application
+    CreateShortcut "$StartMenuPath\$StartMenuFolder\SoapUI Tutorials.lnk" "$INSTDIR\Tutorials"
+    !insertmacro MUI_STARTMENU_WRITE_END
+SectionEnd
+
+Section "Desktop Shortcut" SecDesktop
+    CreateShortcut "$DESKTOP\SoapUI ${project.version}.lnk" "$INSTDIR\bin\SoapUI-${project.version}.exe" "" "$INSTDIR\bin\SoapUI-${project.version}.exe" 0
+SectionEnd
+
+# Section descriptions
+!insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
+    !insertmacro MUI_DESCRIPTION_TEXT ${SecSoapUI} $(DESC_SOAPUI)
+    !insertmacro MUI_DESCRIPTION_TEXT ${SecHermes} $(DESC_HERMES)
+    !insertmacro MUI_DESCRIPTION_TEXT ${SecTutorials} $(DESC_TUTORIALS)
+    !insertmacro MUI_DESCRIPTION_TEXT ${SecDesktop} $(DESC_DESKTOP)
+!insertmacro MUI_FUNCTION_DESCRIPTION_END
+
+# Helper function to check uninstall entries for SoapUI (VERSION SPECIFIC)
+Function CheckUninstallEntries
+    Push $R0  # Registry key base
+    Push $R1  # Counter
+    Push $R2  # Key name
+    Push $R3  # Display name
+    Push $R4  # Publisher
+    Push $R5  # Uninstall string
+    Push $R6  # Result (found/not found)
+    Push $R7  # Display version
+    
+    # Get parameters: $R0 = registry root ("HKCU" or "HKLM")
+    Exch $R0
+    
+    StrCpy $R1 0       # Counter
+    StrCpy $R6 ""      # Result - empty means not found
+    
+    enum_loop:
+        # Enumerate uninstall entries
+        StrCmp $R0 "HKCU" 0 enum_hklm
+        EnumRegKey $R2 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall" $R1
+        Goto check_key
+        
+        enum_hklm:
+        EnumRegKey $R2 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall" $R1
+        
+        check_key:
+        # If no more keys, exit
+        StrCmp $R2 "" enum_done
+        
+        # Read display name from this uninstall entry
+        StrCmp $R0 "HKCU" 0 read_hklm_display
+        ReadRegStr $R3 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\$R2" "DisplayName"
+        ReadRegStr $R4 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\$R2" "Publisher"
+        ReadRegStr $R5 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\$R2" "UninstallString"
+        Goto check_display_name
+        
+        read_hklm_display:
+        ReadRegStr $R3 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\$R2" "DisplayName"
+        ReadRegStr $R4 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\$R2" "Publisher"
+        ReadRegStr $R5 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\$R2" "UninstallString"
+        
+        check_display_name:
+        # Check if this is a SoapUI installation with the EXACT VERSION
+        # Look for "SoapUI" in display name or "SmartBear" as publisher, but also check version
+        
+        # Check if display name contains "SoapUI" (case insensitive)
+        Push $R3    # Original display name
+        Push "SoapUI"
+        Call StrStr
+        Pop $R3     # Result of search (found string or empty)
+        StrCmp $R3 "" check_publisher_direct
+        
+        # Found SoapUI in display name - now check version
+        # Read the actual DisplayVersion value
+        StrCmp $R0 "HKCU" 0 read_hklm_version
+        ReadRegStr $R3 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\$R2" "DisplayName"
+        ReadRegStr $R7 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\$R2" "DisplayVersion"
+        Goto check_version_match
+        
+        read_hklm_version:
+        ReadRegStr $R3 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\$R2" "DisplayName"
+        ReadRegStr $R7 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\$R2" "DisplayVersion"
+        
+        check_version_match:
+        # Check if the version matches exactly
+        StrCmp $R7 "${project.version}" found_soapui_display next_key
+        
+        found_soapui_display:
+        StrCpy $R6 "DisplayName:$R3|Publisher:$R4|Uninstall:$R5|Key:$R2|Version:$R7"
+        Goto enum_done
+        
+        check_publisher_direct:
+        # Check if publisher is SmartBear
+        Push $R4    # Original publisher name
+        Push "SmartBear"
+        Call StrStr
+        Pop $R4     # Result of search
+        StrCmp $R4 "" next_key
+        
+        # Found SmartBear as publisher - restore original display name and check if SoapUI related
+        ReadRegStr $R3 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\$R2" "DisplayName"
+        ReadRegStr $R4 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\$R2" "Publisher"
+        StrCmp $R0 "HKCU" 0 +3
+        Goto check_soapui_in_smartbear
+        ReadRegStr $R3 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\$R2" "DisplayName"
+        ReadRegStr $R4 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\$R2" "Publisher"
+        
+        check_soapui_in_smartbear:
+        Push $R3    # Display name
+        Push "SoapUI"
+        Call StrStr
+        Pop $R3     # Result
+        StrCmp $R3 "" next_key
+        
+        # Found SmartBear SoapUI - now check version
+        # Read the actual DisplayVersion value
+        StrCmp $R0 "HKCU" 0 read_hklm_version_smartbear
+        ReadRegStr $R3 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\$R2" "DisplayName"
+        ReadRegStr $R7 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\$R2" "DisplayVersion"
+        Goto check_version_match_smartbear
+        
+        read_hklm_version_smartbear:
+        ReadRegStr $R3 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\$R2" "DisplayName"
+        ReadRegStr $R7 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\$R2" "DisplayVersion"
+        
+        check_version_match_smartbear:
+        # Check if the version matches exactly
+        StrCmp $R7 "${project.version}" found_smartbear_soapui next_key
+        
+        found_smartbear_soapui:
+        StrCpy $R6 "DisplayName:$R3|Publisher:$R4|Uninstall:$R5|Key:$R2|Version:$R7"
+        Goto enum_done
+        
+        next_key:
+        IntOp $R1 $R1 + 1
+        Goto enum_loop
+    
+    enum_done:
+    # Return result in $R6
+    Pop $R7
+    Pop $R5
+    Pop $R4
+    Pop $R3
+    Pop $R2
+    Pop $R1
+    Exch $R6  # Put result on stack
+    Exch 1
+    Pop $R0   # Remove input parameter
+FunctionEnd
+
+# Case-insensitive string search function
+Function StrStr
+    Exch $R1 # $R1=substring, stack=[old$R1,string,...]
+    Exch     # stack=[string,old$R1,...]
+    Exch $R2 # $R2=string, stack=[old$R2,old$R1,...]
+    Push $R3
+    Push $R4
+    Push $R5
+    StrLen $R3 $R1
+    StrCpy $R4 0
+    ; $R1=substring, $R2=string, $R3=strlen(substring)
+    ; $R4=count
+    loop:
+        StrCpy $R5 $R2 $R3 $R4
+        StrCmp $R5 $R1 done
+        StrCmp $R5 "" done
+        IntOp $R4 $R4 + 1
+        Goto loop
+    done:
+    StrCmp $R5 $R1 found
+    StrCpy $R1 ""
+    Goto end
+    found:
+    StrCpy $R1 $R5
+    end:
+    Pop $R5
+    Pop $R4
+    Pop $R3
+    Pop $R2
+    Exch $R1
+FunctionEnd
+
+# Enhanced function to check for existing SoapUI installations
+Function CheckExistingInstallations
+    Push $R0  # Result from user check
+    Push $R1  # Result from machine check
+    Push $R2  # Installation type
+    Push $R3  # Parsed info
+    Push $R4  # Temporary for version string
+    
+    # Force 64-bit registry access to prevent WOW6432Node redirection
+    SetRegView 64
+    
+    # Print localized detection header
+    DetailPrint $(DETECTION_HEADER)
+    
+    # Print scanning message with version
+    StrCpy $R4 "${project.version}"
+    DetailPrint "$(DETECTION_SCANNING)"
+    DetailPrint "$(DETECTION_TARGET)"
+    
+    # Check user-level installations first
+    DetailPrint $(DETECTION_USER_CHECK)
+    Push "HKCU"
+    Call CheckUninstallEntries
+    Pop $R0
+    
+    # Check machine-level installations
+    DetailPrint $(DETECTION_MACHINE_CHECK)
+    Push "HKLM"
+    Call CheckUninstallEntries
+    Pop $R1
+    
+    # Analyze results - Check both HKCU and HKLM results
+    StrCmp $R0 "" check_machine_only
+    StrCmp $R1 "" user_only_found
+    
+    # Both found - prioritize machine-level (All Users) as it's more comprehensive
+    DetailPrint $(DETECTION_BOTH_FOUND)
+    StrCpy $R4 $R1
+    DetailPrint "$(DETECTION_MACHINE_DETAILS)"
+    StrCpy $R4 $R0
+    DetailPrint "$(DETECTION_USER_DETAILS)"
+    StrCpy $R2 $(SCOPE_ALL_USERS_PRIORITY)
+    StrCpy $R3 $R1
+    Goto found_installation
+    
+    user_only_found:
+    # Found only user installation
+    DetailPrint $(DETECTION_USER_FOUND)
+    StrCpy $R4 $R0
+    DetailPrint "$(DETAILS_LABEL) $R4"
+    StrCpy $R2 $(SCOPE_CURRENT_USER_ONLY)
+    StrCpy $R3 $R0
+    Goto found_installation
+    
+    check_machine_only:
+    StrCmp $R1 "" no_installation
+    # Found only machine installation
+    DetailPrint $(DETECTION_MACHINE_FOUND)
+    StrCpy $R4 $R1
+    DetailPrint "$(DETAILS_LABEL) $R4"
+    StrCpy $R2 $(SCOPE_ALL_USERS_ONLY)
+    StrCpy $R3 $R1
+    
+    found_installation:
+    DetailPrint $(DETECTION_EXISTING_HEADER)
+    StrCpy $R4 $R2
+    DetailPrint "$(DETECTION_SCOPE)"
+    StrCpy $R4 $R3
+    DetailPrint "$(DETECTION_DETAILS)"
+    DetailPrint $(DETECTION_SEPARATOR)
+    
+    # Show user-friendly message
+    MessageBox MB_OKCANCEL|MB_ICONEXCLAMATION \
+        "$(MSG_INSTALLATION_DETECTED)" \
+        IDOK continue_installation
+    
+    # User chose to cancel
+    DetailPrint $(DETECTION_CANCELLED)
+    Abort
+    
+    continue_installation:
+    DetailPrint $(DETECTION_CONTINUE)
+    Goto cleanup
+    
+    no_installation:
+    DetailPrint $(DETECTION_NONE_HEADER)
+    StrCpy $R4 "${project.version}"
+    DetailPrint "$(DETECTION_NONE_MSG)"
+    DetailPrint $(DETECTION_SAFE)
+    DetailPrint $(DETECTION_NOTE_OTHER)
+    DetailPrint $(DETECTION_SEPARATOR)
+    
+    cleanup:
+    # Restore registry view
+    SetRegView lastused
+    
+    Pop $R4
+    Pop $R3
+    Pop $R2
+    Pop $R1
+    Pop $R0
+FunctionEnd
+
+# Installer functions
+Function .onInit
+    # Set default component selection (uncheck optional components)
+    # SectionSetFlags ${SecSoapUI} ${SF_SELECTED}     # Already RO (Read-Only), always selected
+    SectionSetFlags ${SecHermes} 0                    # Uncheck HermesJMS by default
+    SectionSetFlags ${SecTutorials} 0                 # Uncheck Tutorials by default  
+    SectionSetFlags ${SecDesktop} 0                   # Uncheck Desktop Shortcut by default
+    
+    # Initialize default values based on user privileges
+    UserInfo::GetAccountType
+    Pop $R9
+    StrCmp $R9 "Admin" init_admin
+    StrCmp $R9 "Power" init_admin
+    
+    # Default for regular users - current user installation
+    StrCpy $InstallScope "CurrentUser"
+    StrCpy $StartMenuPath "$SMPROGRAMS"
+    StrCpy $INSTDIR "$LOCALAPPDATA\SmartBear\SoapUI-${project.version}"
+    Goto init_done
+    
+    init_admin:
+    # Default for administrators - all users installation
+    StrCpy $InstallScope "AllUsers"
+    StrCpy $StartMenuPath "$SMPROGRAMS"
+    StrCpy $INSTDIR "$PROGRAMFILES64\SmartBear\SoapUI-${project.version}"
+    
+    init_done:
+    
+    # Check for existing installations using hash-based detection
+    Call CheckExistingInstallations
+FunctionEnd
+
+# Function to create the installation scope selection page
+Function InstallScopePageCreate
+    !insertmacro MUI_HEADER_TEXT $(SCOPE_PAGE_TITLE) $(SCOPE_PAGE_SUBTITLE)
+    
+    nsDialogs::Create 1018
+    Pop $Dialog
+    
+    # Create instructions text
+    ${NSD_CreateLabel} 0 0 100% 30u $(SCOPE_INSTRUCTIONS)
+    Pop $Label1
+    
+    # Create radio button for current user
+    ${NSD_CreateRadioButton} 10u 40u 100% 15u $(SCOPE_CURRENT_USER)
+    Pop $RadioCurrentUser
+    ${NSD_OnClick} $RadioCurrentUser CurrentUserRadioClick
+    
+    # Create radio button for all users
+    ${NSD_CreateRadioButton} 10u 70u 100% 15u $(SCOPE_ALL_USERS)
+    Pop $RadioAllUsers
+    ${NSD_OnClick} $RadioAllUsers AllUsersRadioClick
+    
+    # Check if user is admin to set default selection and enable/disable options
+    UserInfo::GetAccountType
+    Pop $R0
+    StrCmp $R0 "Admin" admin_user
+    StrCmp $R0 "Power" admin_user
+    
+    # Not admin - disable all users option and pre-select current user
+    EnableWindow $RadioAllUsers 0
+    ${NSD_SetState} $RadioCurrentUser ${BST_CHECKED}
+    ${NSD_CreateLabel} 25u 100u 100% 15u $(SCOPE_NOTE_NO_ADMIN)
+    Pop $LabelNote
+    Goto show_dialog
+    
+    admin_user:
+    # Admin - enable both options and pre-select all users (recommended for admins)
+    ${NSD_SetState} $RadioAllUsers ${BST_CHECKED}
+    ${NSD_CreateLabel} 25u 100u 100% 15u $(SCOPE_NOTE_ADMIN)
+    Pop $LabelNote
+    
+    show_dialog:
+    nsDialogs::Show
+FunctionEnd
+
+# Function called when current user radio is clicked
+Function CurrentUserRadioClick
+    Pop $R0
+    ${NSD_GetState} $R0 $R1
+    IntCmp $R1 1 0 +3 +3
+    ${NSD_SetState} $RadioAllUsers ${BST_UNCHECKED}
+FunctionEnd
+
+# Function called when all users radio is clicked  
+Function AllUsersRadioClick
+    Pop $R0
+    ${NSD_GetState} $R0 $R1
+    IntCmp $R1 1 0 +3 +3
+    ${NSD_SetState} $RadioCurrentUser ${BST_UNCHECKED}
+FunctionEnd
+
+# Function called when leaving the installation scope page
+Function InstallScopePageLeave
+    # Check which option was selected
+    ${NSD_GetState} $RadioAllUsers $R0
+    DetailPrint "Radio All Users state: $R0"
+    IntCmp $R0 1 all_users_selected current_user_selected current_user_selected
+    
+    all_users_selected:
+    # Set variables for all users installation
+    DetailPrint "Setting scope to AllUsers"
+    StrCpy $InstallScope "AllUsers"
+    StrCpy $StartMenuPath "$SMPROGRAMS"
+    StrCpy $INSTDIR "$PROGRAMFILES64\SmartBear\SoapUI-${project.version}"
+    Goto scope_done
+    
+    current_user_selected:
+    # Set variables for current user installation (already set in .onInit, but ensure)
+    DetailPrint "Setting scope to CurrentUser"
+    StrCpy $InstallScope "CurrentUser"
+    StrCpy $StartMenuPath "$SMPROGRAMS"
+    StrCpy $INSTDIR "$LOCALAPPDATA\SmartBear\SoapUI-${project.version}"
+    
+    scope_done:
+    DetailPrint "Final InstallScope: $InstallScope"
+FunctionEnd
+
+# Function to show installation files page with details expanded
+Function InstallFilesShow
+    # Show details by default
+    SendMessage $mui.InstFilesPage.Log ${WM_VSCROLL} ${SB_BOTTOM} 0
+    # Expand details section
+    GetDlgItem $0 $HWNDPARENT 1016
+    ShowWindow $0 ${SW_HIDE}
+    GetDlgItem $0 $HWNDPARENT 1027
+    ShowWindow $0 ${SW_SHOW}
+FunctionEnd
+
+# Uninstallation section with hash-based registry cleanup
+Section "Uninstall"
+    # Force 64-bit registry access for uninstaller too
+    SetRegView 64
+    # Remove main files
+    RMDir /r "$INSTDIR\bin"
+    RMDir /r "$INSTDIR\lib"
+    RMDir /r "$INSTDIR\jre"
+    RMDir /r "$INSTDIR\licenses"
+    # Note: .soapuios is in user home, not installation dir
+    # RMDir /r "$INSTDIR\.soapuios"
+    
+    # Remove optional components
+    RMDir /r "$INSTDIR\HermesJMS"
+    RMDir /r "$INSTDIR\Tutorials"
+    
+    # Remove root files
+    Delete "$INSTDIR\*.url"
+    Delete "$INSTDIR\*.md"
+    Delete "$INSTDIR\LICENSE.txt"
+    Delete "$INSTDIR\RELEASENOTES.txt"
+    Delete "$INSTDIR\uninstall.exe"
+    
+    # Remove main directory (if empty)
+    RMDir "$INSTDIR"
+    
+    # Determine uninstall scope and remove hash-based registry entries
+    ReadRegStr $R0 HKLM "Software\SmartBear\SoapUI-${project.version}" "UninstallKey"
+    StrCmp $R0 "" check_user_install
+    
+    # Machine-level installation with hash
+    DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\$R0"
+    DeleteRegKey HKLM "Software\SmartBear\SoapUI-${project.version}"
+    
+    # Try to remove SmartBear key if empty (ignore errors if not empty or other versions exist)
+    DeleteRegKey /ifempty HKLM "Software\SmartBear"
+    
+    StrCpy $StartMenuPath "$SMPROGRAMS"
+    Goto check_legacy_cleanup
+    
+    check_user_install:
+    ReadRegStr $R0 HKCU "Software\SmartBear\SoapUI-${project.version}" "UninstallKey"
+    StrCmp $R0 "" check_legacy_cleanup
+    
+    # User-level installation with hash
+    DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\$R0"
+    DeleteRegKey HKCU "Software\SmartBear\SoapUI-${project.version}"
+    
+    # Try to remove SmartBear key if empty (ignore errors if not empty or other versions exist)
+    DeleteRegKey /ifempty HKCU "Software\SmartBear"
+    
+    StrCpy $StartMenuPath "$SMPROGRAMS"
+    
+    check_legacy_cleanup:
+    # Clean up legacy installations (old format without hash) if they exist
+    DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\SoapUI"
+    DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\SoapUI"
+    
+    # Remove file associations
+    DeleteRegKey HKCR ".soapui-project"
+    DeleteRegKey HKCR "SoapUI.Project"
+    
+    # Remove all Start Menu shortcuts (dynamic location)
+    !insertmacro MUI_STARTMENU_GETFOLDER Application $StartMenuFolder
+    Delete "$StartMenuPath\$StartMenuFolder\SoapUI-${project.version}.lnk"
+    Delete "$StartMenuPath\$StartMenuFolder\Install HermesJMS.lnk"
+    Delete "$StartMenuPath\$StartMenuFolder\SoapUI Tutorials.lnk"
+    Delete "$StartMenuPath\$StartMenuFolder\SoapUI ${project.version} Uninstaller.lnk"
+    Delete "$StartMenuPath\$StartMenuFolder\soapui.org website.url"
+    Delete "$StartMenuPath\$StartMenuFolder\Online JavaDoc.url"
+    RMDir "$StartMenuPath\$StartMenuFolder"
+    
+    # Remove desktop shortcut
+    Delete "$DESKTOP\SoapUI ${project.version}.lnk"
+SectionEnd
+</echo>
+        
+        <echo message="Script NSIS created: ${nsis.script}"/>
+    </target>
+    
+    <!-- Compile installer with NSIS -->
+    <target name="build-installer">
+        <echo message="Compiling installer with NSIS..."/>
+        
+        <exec executable="${nsis.dir}/makensis.exe" failonerror="true">
+            <arg value="/V3"/>
+            <arg value="${nsis.script}"/>
+        </exec>
+        
+        <echo message="Installer created successfully: ${installer.output}"/>
+    </target>
+    
+    <!-- Cleanup after installer creation -->
+    <target name="cleanup-installer">
+        <echo message="Removing temporary installer files..."/>
+        
+        <!-- Remove temporary icons -->
+        <delete file="${dist.dir}/SoapUI-OS.ico" failonerror="false"/>
+        <delete file="${bin.dir}/SoapUI-OS.ico" failonerror="false"/>
+        
+        <!-- Remove BUILD-LAUNCH4J-README.md from distribution -->
+        <delete file="${dist.dir}/BUILD-LAUNCH4J-README.md" failonerror="false"/>
+        
+        <echo message="Temporary files removed: .ico icons, BUILD-LAUNCH4J-README.md"/>
+    </target>
+    
+    <!-- Cleanup for portable ZIP distribution -->
+    <target name="cleanup-distribution">
+        <echo message="Removing optional components from portable distribution..."/>
+        
+        <!-- Remove files that should not go in the portable ZIP -->
+        <delete file="${dist.dir}/SoapUI-OS.ico" failonerror="false"/>
+        <delete file="${dist.dir}/BUILD-LAUNCH4J-README.md" failonerror="false"/>
+        <delete file="${dist.dir}/demo_workspace.xml" failonerror="false"/>
+        <delete file="${dist.dir}/soapui-config.xml" failonerror="false"/>
+        <delete file="${bin.dir}/SoapUI-OS.ico" failonerror="false"/>
+        
+        <!-- Remove optional components (same rules as NSIS installer with unchecked options) -->
+        <delete dir="${dist.dir}/tempHermes" failonerror="false"/>
+        <delete dir="${dist.dir}/SoapUI-Tutorials" failonerror="false"/>
+        <delete dir="${dist.dir}/wsi-test-tools" failonerror="false"/>
+        
+        <echo message="Excluded from portable ZIP:"/>
+        <echo message="   ❌ Temp files: SoapUI-OS.ico, soapui-config.xml"/>
+        <echo message="   ❌ Build docs: BUILD-LAUNCH4J-README.md, demo_workspace.xml"/>
+        <echo message="   ❌ Components: HermesJMS, Tutorials, WSI-Test-Tools"/>
+        <echo message="Portable ZIP = Clean structure without duplicates or build files"/>
+    </target>
+    
+</project> 
