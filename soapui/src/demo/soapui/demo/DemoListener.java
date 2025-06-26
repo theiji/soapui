@@ -33,6 +33,7 @@ public class DemoListener extends TestRunListenerAdapter
 	public void afterRun( TestRunner testRunner, TestRunContext runContext )
 	{
 		long endTime = System.nanoTime();
-		SoapUI.log.info( "TestCase [" + testRunner.getTestCase().getName() + "] took " + (endTime-startTime) + " nanoseconds." );
+		SoapUI.log.info("TestCase [" + testRunner.getTestRunnable().getName() + "] took " + (endTime - startTime)
+				+ " nanoseconds.");
 	}
 }
