@@ -56,98 +56,45 @@ public class SwitchThemeAction extends AbstractSoapUIAction<WorkspaceImpl> imple
 
             // Ask for confirmation before making the change
             SwingUtilities.invokeLater(() -> {
-                String[] options = { "Yes", "No" };
+                String[] options = { "OK", "Cancel" };
                 int result = JOptionPane.showOptionDialog(
                         SoapUI.getFrame(),
                         "Switch to " + (newDarkModeState ? "dark" : "light") + " mode?\n" +
-                                "The application will restart to apply the theme changes.",
+                                "The theme will be applied after you restart the application.",
                         "Switch Theme",
-                        JOptionPane.YES_NO_OPTION,
+                        JOptionPane.OK_CANCEL_OPTION,
                         JOptionPane.QUESTION_MESSAGE,
                         null,
                         options,
                         options[0]);
 
-                if (result == 0) { // "Yes" selected
+                if (result == 0) { // "OK" selected
                     try {
                         // Save the new theme setting
                         SoapUI.getSettings().setBoolean("UISettings.DARK_MODE", newDarkModeState);
                         SoapUI.saveSettings();
 
-                        // Force restart
-                        restartApplication();
+                        // Show confirmation message
+                        JOptionPane.showMessageDialog(
+                                SoapUI.getFrame(),
+                                "Theme setting saved successfully!\n" +
+                                        "Please restart SoapUI to apply the " + (newDarkModeState ? "dark" : "light") + " theme.",
+                                "Theme Changed",
+                                JOptionPane.INFORMATION_MESSAGE);
 
                         Analytics.trackAction(SWITCH_THEME);
                     } catch (Exception e) {
-                        throw new RuntimeException(e);
+                        JOptionPane.showMessageDialog(
+                                SoapUI.getFrame(),
+                                "Error saving theme setting: " + e.getMessage(),
+                                "Error",
+                                JOptionPane.ERROR_MESSAGE);
                     }
                 }
-                // If "No" is selected or dialog is closed, do nothing
+                // If "Cancel" is selected or dialog is closed, do nothing
             });
         } catch (Exception e) {
             throw new RuntimeException(e);
-        }
-    }
-
-    private void restartApplication() {
-        SwingUtilities.invokeLater(() -> {
-            try {
-                // Save all settings and workspace before restarting
-                SoapUI.getSoapUICore().saveSettings();
-                if (SoapUI.getWorkspace() != null) {
-                    SoapUI.getWorkspace().onClose();
-                }
-
-                // Try to restart the application using different methods
-                if (tryRestartWithJavaCommand()) {
-                    return;
-                }
-
-                // If restart methods fail, just exit gracefully
-                // The user will need to manually restart
-                System.exit(0);
-
-            } catch (Exception e) {
-                // If anything fails, just exit
-                System.exit(0);
-            }
-        });
-    }
-
-    private boolean tryRestartWithJavaCommand() {
-        try {
-            // Get the main arguments to restart with same parameters
-            String[] args = SoapUI.getMainArgs();
-
-            // Get current JVM properties
-            String java = System.getProperty("java.home") + "/bin/java";
-            String classpath = System.getProperty("java.class.path");
-            String mainClass = "com.eviware.soapui.SoapUI";
-
-            // Build the command to restart the application
-            java.util.List<String> command = new java.util.ArrayList<>();
-            command.add(java);
-            command.add("-cp");
-            command.add(classpath);
-            command.add(mainClass);
-
-            // Add original arguments if any
-            if (args != null) {
-                for (String arg : args) {
-                    command.add(arg);
-                }
-            }
-
-            // Start the new process
-            ProcessBuilder builder = new ProcessBuilder(command);
-            builder.start();
-
-            // Exit current application
-            System.exit(0);
-            return true;
-
-        } catch (Exception e) {
-            return false;
         }
     }
 
