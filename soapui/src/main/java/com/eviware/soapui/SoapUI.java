@@ -1293,6 +1293,9 @@ public class SoapUI {
             }
 
             try {
+                // Apply any pending theme changes before saving settings
+                SwitchThemeAction.applyPendingThemeChange();
+                
                 soapUICore.saveSettings();
                 SaveStatus saveStatus = workspace.onClose();
                 if (saveStatus == SaveStatus.CANCELLED || saveStatus == SaveStatus.FAILED) {

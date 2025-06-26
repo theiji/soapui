@@ -36,6 +36,10 @@ import static com.eviware.soapui.analytics.SoapUIActions.SWITCH_THEME;
 
 public class SwitchThemeAction extends AbstractSoapUIAction<WorkspaceImpl> implements WorkspaceListener {
     public static final String SOAPUI_ACTION_ID = "SwitchThemeAction";
+    
+    // Static variable to store pending theme change
+    private static Boolean pendingDarkModeState = null;
+    private static boolean hasPendingThemeChange = false;
 
     public SwitchThemeAction() {
         super("Switch theme", "Switches theme");
@@ -60,7 +64,7 @@ public class SwitchThemeAction extends AbstractSoapUIAction<WorkspaceImpl> imple
                 int result = JOptionPane.showOptionDialog(
                         SoapUI.getFrame(),
                         "Switch to " + (newDarkModeState ? "dark" : "light") + " mode?\n" +
-                                "The theme will be applied after you restart the application.",
+                                "The theme will be applied when you restart the application.",
                         "Switch Theme",
                         JOptionPane.OK_CANCEL_OPTION,
                         JOptionPane.QUESTION_MESSAGE,
@@ -70,23 +74,23 @@ public class SwitchThemeAction extends AbstractSoapUIAction<WorkspaceImpl> imple
 
                 if (result == 0) { // "OK" selected
                     try {
-                        // Save the new theme setting
-                        SoapUI.getSettings().setBoolean("UISettings.DARK_MODE", newDarkModeState);
-                        SoapUI.saveSettings();
+                        // Store the pending theme change instead of saving immediately
+                        pendingDarkModeState = newDarkModeState;
+                        hasPendingThemeChange = true;
 
                         // Show confirmation message
                         JOptionPane.showMessageDialog(
                                 SoapUI.getFrame(),
-                                "Theme setting saved successfully!\n" +
-                                        "Please restart SoapUI to apply the " + (newDarkModeState ? "dark" : "light") + " theme.",
-                                "Theme Changed",
+                                "Theme change scheduled!\n" +
+                                        "The " + (newDarkModeState ? "dark" : "light") + " theme will be applied when you restart SoapUI.",
+                                "Theme Change Scheduled",
                                 JOptionPane.INFORMATION_MESSAGE);
 
                         Analytics.trackAction(SWITCH_THEME);
                     } catch (Exception e) {
                         JOptionPane.showMessageDialog(
                                 SoapUI.getFrame(),
-                                "Error saving theme setting: " + e.getMessage(),
+                                "Error scheduling theme change: " + e.getMessage(),
                                 "Error",
                                 JOptionPane.ERROR_MESSAGE);
                     }
@@ -96,6 +100,44 @@ public class SwitchThemeAction extends AbstractSoapUIAction<WorkspaceImpl> imple
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+    }
+
+    /**
+     * Method to be called when the application is closing to apply pending theme changes
+     */
+    public static void applyPendingThemeChange() {
+        if (hasPendingThemeChange && pendingDarkModeState != null) {
+            try {
+                SoapUI.getSettings().setBoolean("UISettings.DARK_MODE", pendingDarkModeState);
+                SoapUI.saveSettings();
+                hasPendingThemeChange = false;
+                pendingDarkModeState = null;
+            } catch (Exception e) {
+                SoapUI.logError(e, "Error applying pending theme change");
+            }
+        }
+    }
+
+    /**
+     * Check if there's a pending theme change
+     */
+    public static boolean hasPendingThemeChange() {
+        return hasPendingThemeChange;
+    }
+
+    /**
+     * Get the pending theme state
+     */
+    public static Boolean getPendingDarkModeState() {
+        return pendingDarkModeState;
+    }
+
+    /**
+     * Cancel pending theme change
+     */
+    public static void cancelPendingThemeChange() {
+        hasPendingThemeChange = false;
+        pendingDarkModeState = null;
     }
 
     public void projectAdded(Project project) {
