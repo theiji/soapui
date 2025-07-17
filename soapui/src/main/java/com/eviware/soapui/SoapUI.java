@@ -359,7 +359,7 @@ public class SoapUI {
         frame.getContentPane().add(mainInspector.getComponent(), BorderLayout.CENTER);
         frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
 
-        mainInspector.setDividerLocation(250);
+        mainInspector.setDividerLocation(400);
         mainInspector.setResizeWeight(0.1);
         navigator.selectModelItem(workspace);
 
