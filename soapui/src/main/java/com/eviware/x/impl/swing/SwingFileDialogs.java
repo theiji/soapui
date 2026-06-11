@@ -16,15 +16,16 @@
 
 package com.eviware.x.impl.swing;
 
-import com.eviware.soapui.support.ExtensionFileFilter;
-import com.eviware.x.dialogs.XFileDialogs;
-
-import javax.swing.JFileChooser;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.io.File;
 import java.util.HashMap;
 import java.util.Map;
+
+import javax.swing.JFileChooser;
+
+import com.eviware.soapui.support.ExtensionFileFilter;
+import com.eviware.x.dialogs.XFileDialogs;
 
 /**
  * @author Lars
@@ -42,6 +43,7 @@ public class SwingFileDialogs implements XFileDialogs {
         JFileChooser chooser = choosers.get(action);
         if (chooser == null) {
             chooser = new JFileChooser();
+            chooser.setPreferredSize(new Dimension(800, 600));
             choosers.put(action, chooser);
         }
 

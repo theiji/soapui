@@ -15,12 +15,14 @@
 .PARAMETER Action
     Acao a executar:
 
-      package       - mvn package -DskipTests -pl soapui
-      clean-package - mvn clean package -DskipTests -pl soapui
-      compile       - mvn compile -pl soapui
-      run           - mvn exec:java -pl soapui
-      build-run     - mvn clean compile exec:java -DskipTests -pl soapui
-      help          - exibe a ajuda
+      package                 - mvn package -Dmaven.test.skip -pl soapui (padrao; nao compila nem roda testes)
+      clean-package           - mvn clean package -Dmaven.test.skip -pl soapui
+      package-skip-tests      - mvn package -DskipTests -pl soapui (compila testes, nao executa)
+      clean-package-skip-tests - mvn clean package -DskipTests -pl soapui
+      compile                 - mvn compile -pl soapui
+      run                     - mvn exec:java -pl soapui
+      build-run               - mvn clean compile exec:java -Dmaven.test.skip -pl soapui
+      help                    - exibe a ajuda
 
 .PARAMETER ShowHelp
     Exibe a ajuda resumida e encerra.
@@ -47,7 +49,7 @@
 #>
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('package', 'clean-package', 'compile', 'run', 'build-run', 'help')]
+    [ValidateSet('package', 'clean-package', 'package-skip-tests', 'clean-package-skip-tests', 'compile', 'run', 'build-run', 'help')]
     [string] $Action,
 
     [Alias('?')]
@@ -57,28 +59,36 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$Script:ValidActions = @('package', 'clean-package', 'compile', 'run', 'build-run', 'help')
+$Script:ValidActions = @('package', 'clean-package', 'package-skip-tests', 'clean-package-skip-tests', 'compile', 'run', 'build-run', 'help')
 
 $Script:Actions = [ordered]@{
-    'package'       = @{
-        Description = 'Empacota o modulo (incremental, sem clean)'
+    'package'                  = @{
+        Description = 'Empacota sem compilar nem executar testes (padrao)'
+        Command     = @('-pl', 'soapui', 'package', '-Dmaven.test.skip')
+    }
+    'clean-package'            = @{
+        Description = 'Limpa e empacota sem compilar nem executar testes'
+        Command     = @('-pl', 'soapui', 'clean', 'package', '-Dmaven.test.skip')
+    }
+    'package-skip-tests'       = @{
+        Description = 'Empacota compilando testes, mas sem executa-los'
         Command     = @('-pl', 'soapui', 'package', '-DskipTests')
     }
-    'clean-package' = @{
-        Description = 'Limpa e empacota o modulo'
+    'clean-package-skip-tests' = @{
+        Description = 'Limpa e empacota compilando testes, mas sem executa-los'
         Command     = @('-pl', 'soapui', 'clean', 'package', '-DskipTests')
     }
-    'compile'       = @{
+    'compile'                  = @{
         Description = 'Compila o modulo soapui'
         Command     = @('-pl', 'soapui', 'compile')
     }
-    'run'           = @{
+    'run'                      = @{
         Description = 'Executa o SoapUI (mvn exec:java)'
         Command     = @('-pl', 'soapui', 'exec:java')
     }
-    'build-run'     = @{
+    'build-run'                = @{
         Description = 'Limpa, compila e executa o SoapUI'
-        Command     = @('-pl', 'soapui', 'clean', 'compile', 'exec:java', '-DskipTests')
+        Command     = @('-pl', 'soapui', 'clean', 'compile', 'exec:java', '-Dmaven.test.skip')
     }
 }
 
@@ -95,8 +105,8 @@ function Show-ScriptHelp {
 
     foreach ($name in $Script:Actions.Keys) {
         $cmd = 'mvn ' + ($Script:Actions[$name].Command -join ' ')
-        Write-Host ("  {0,-14} {1}" -f $name, $Script:Actions[$name].Description)
-        Write-Host ("  {0,-14} -> {1}" -f '', $cmd) -ForegroundColor DarkGray
+        Write-Host ("  {0,-26} {1}" -f $name, $Script:Actions[$name].Description)
+        Write-Host ("  {0,-26} -> {1}" -f '', $cmd) -ForegroundColor DarkGray
     }
 
     Write-Host ''
@@ -107,6 +117,7 @@ function Show-ScriptHelp {
     Write-Host '  .\scripts\run-soapui.ps1 help'
     Write-Host '  .\scripts\run-soapui.ps1 run'
     Write-Host '  .\scripts\run-soapui.ps1 -Action clean-package'
+    Write-Host '  .\scripts\run-soapui.ps1 -Action package-skip-tests'
     Write-Host '  .\scripts\run-soapui.ps1 -Action build-run'
     Write-Host ''
     Write-Host 'Requisitos:' -ForegroundColor Yellow
