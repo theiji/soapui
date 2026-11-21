@@ -1426,6 +1426,7 @@ public class SoapUI {
                     + "<a href=\"" + SOAPUI_WEBSITE + "\">" + SOAPUI_WEBSITE + "</a> | "
                     + "<a href=\"" + SMARTBEAR_WEBSITE + "\">" + SMARTBEAR_WEBSITE + "</a><br><br>"
                     + "Build Date: " + MoreObjects.firstNonNull(buildInfoProperties.getProperty("build.date"), "UNKNOWN BUILD DATE") + "<br>"
+                    + "Alterado por Theiji<br>"
                     + "</font></p>"
                     + "</div></body></html>";
 

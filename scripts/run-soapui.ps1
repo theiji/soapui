@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     Compila, empacota e executa o SoapUI via Maven.
@@ -229,15 +229,61 @@ function Resolve-ScriptAction {
     return 'package'
 }
 
+function Resolve-ProjectJavaHome {
+    # SoapUI (maxJdkVersion=17). Prefer local JDK 17 for this process only — does not change the global JAVA_HOME.
+    $preferred = 'C:\Program Files\Microsoft\jdk-17.0.21.102-hotspot'
+    if (Test-Path (Join-Path $preferred 'bin\java.exe')) {
+        return $preferred
+    }
+
+    $microsoftJdks = Get-ChildItem 'C:\Program Files\Microsoft' -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -like 'jdk-17*' } |
+        Sort-Object Name -Descending
+    foreach ($dir in $microsoftJdks) {
+        if (Test-Path (Join-Path $dir.FullName 'bin\java.exe')) {
+            return $dir.FullName
+        }
+    }
+
+    return $null
+}
+
 function Assert-JavaHome {
+    $projectJdk = Resolve-ProjectJavaHome
+    if ($projectJdk) {
+        $env:JAVA_HOME = $projectJdk
+        $javaBin = Join-Path $env:JAVA_HOME 'bin'
+        $env:Path = "$javaBin;" + (($env:Path -split ';' | Where-Object { $_ -and ($_ -ne $javaBin) }) -join ';')
+        Write-Host "Usando JDK do projeto (somente neste script): $env:JAVA_HOME" -ForegroundColor DarkGray
+        return
+    }
+
     if ([string]::IsNullOrWhiteSpace($env:JAVA_HOME)) {
-        throw 'JAVA_HOME nao esta definido. Defina a variavel de ambiente JAVA_HOME e tente novamente.'
+        throw 'JDK 17 do projeto nao encontrado e JAVA_HOME nao esta definido. Instale com: winget install --id Microsoft.OpenJDK.17 -e --source winget --accept-package-agreements --accept-source-agreements  (ou defina JAVA_HOME).'
     }
 
     $javaExe = Join-Path $env:JAVA_HOME 'bin\java.exe'
     if (-not (Test-Path $javaExe)) {
         throw "JAVA_HOME aponta para um diretorio invalido: $env:JAVA_HOME"
     }
+}
+
+function Enable-NetskopeTrustStore {
+    # Corporate SSL inspection (Netskope) breaks Maven HTTPS unless Java trusts the CA.
+    $trustStore = Join-Path $env:USERPROFILE '.soapui-java-trust\cacerts'
+    if (-not (Test-Path $trustStore)) {
+        return
+    }
+
+    $flag = "-Djavax.net.ssl.trustStore=$trustStore -Djavax.net.ssl.trustStorePassword=changeit"
+    if ([string]::IsNullOrWhiteSpace($env:JAVA_TOOL_OPTIONS)) {
+        $env:JAVA_TOOL_OPTIONS = $flag
+    }
+    elseif ($env:JAVA_TOOL_OPTIONS -notlike '*javax.net.ssl.trustStore*') {
+        $env:JAVA_TOOL_OPTIONS = ($env:JAVA_TOOL_OPTIONS.Trim() + ' ' + $flag)
+    }
+
+    Write-Host "Usando truststore Netskope: $trustStore" -ForegroundColor DarkGray
 }
 
 function Invoke-Maven {
@@ -266,6 +312,7 @@ if ($Action -eq 'help') {
 }
 
 Assert-JavaHome
+Enable-NetskopeTrustStore
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $repoRoot
