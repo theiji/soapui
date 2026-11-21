@@ -15,14 +15,14 @@
 .PARAMETER Action
     Acao a executar:
 
-      package                 - mvn package -Dmaven.test.skip -pl soapui (padrao; nao compila nem roda testes)
-      clean-package           - mvn clean package -Dmaven.test.skip -pl soapui
-      package-skip-tests      - mvn package -DskipTests -pl soapui (compila testes, nao executa)
+      package                  - mvn package -Dmaven.test.skip -pl soapui (padrao; nao compila nem roda testes)
+      clean-package            - mvn clean package -Dmaven.test.skip -pl soapui
+      package-skip-tests       - mvn package -DskipTests -pl soapui (compila testes, nao executa)
       clean-package-skip-tests - mvn clean package -DskipTests -pl soapui
-      compile                 - mvn compile -pl soapui
-      run                     - mvn exec:java -pl soapui
-      build-run               - mvn clean compile exec:java -Dmaven.test.skip -pl soapui
-      help                    - exibe a ajuda
+      compile                  - mvn compile -pl soapui
+      run                      - mvn exec:java -pl soapui
+      build-run                - mvn clean compile exec:java -Dmaven.test.skip -pl soapui
+      help                     - exibe a ajuda
 
 .PARAMETER ShowHelp
     Exibe a ajuda resumida e encerra.
@@ -294,7 +294,7 @@ function Invoke-Maven {
 
     $mvn = Get-Command mvn -ErrorAction SilentlyContinue
     if (-not $mvn) {
-        throw 'Maven (mvn) nao encontrado no PATH.'
+        throw 'Maven (mvn) nao encontrado no PATH. Instale com: winget install --id Apache.Maven -e --source winget --accept-package-agreements --accept-source-agreements'
     }
 
     Write-Host ('mvn ' + ($Arguments -join ' ')) -ForegroundColor Cyan
