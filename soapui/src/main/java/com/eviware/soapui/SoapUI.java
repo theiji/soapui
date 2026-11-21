@@ -358,7 +358,7 @@ public class SoapUI {
         frame.getContentPane().add(mainInspector.getComponent(), BorderLayout.CENTER);
         frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
 
-        mainInspector.setDividerLocation(250);
+        mainInspector.setDividerLocation(400);
         mainInspector.setResizeWeight(0.1);
         navigator.selectModelItem(workspace);
 
@@ -1426,6 +1426,7 @@ public class SoapUI {
                     + "<a href=\"" + SOAPUI_WEBSITE + "\">" + SOAPUI_WEBSITE + "</a> | "
                     + "<a href=\"" + SMARTBEAR_WEBSITE + "\">" + SMARTBEAR_WEBSITE + "</a><br><br>"
                     + "Build Date: " + MoreObjects.firstNonNull(buildInfoProperties.getProperty("build.date"), "UNKNOWN BUILD DATE") + "<br>"
+                    + "Alterado por Theiji<br>"
                     + "</font></p>"
                     + "</div></body></html>";
 
